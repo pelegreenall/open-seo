@@ -5,9 +5,7 @@ export const researchKeywordsSchema = z.object({
   keywords: z.array(z.string().min(1)).min(1).max(200),
   locationCode: z.number().int().positive().default(2840),
   languageCode: z.string().min(2).max(8).default("en"),
-  resultLimit: z
-    .union([z.literal(150), z.literal(300), z.literal(500)])
-    .default(150),
+  resultLimit: z.number().int().positive().default(150),
   mode: z
     .enum(["auto", "related", "suggestions", "ideas"])
     .optional()
@@ -99,7 +97,7 @@ const keywordModes = ["auto", "related", "suggestions", "ideas"] as const;
 export const keywordsSearchSchema = z.object({
   q: z.string().optional(),
   loc: z.coerce.number().int().positive().optional(),
-  kLimit: z.union([z.literal(150), z.literal(300), z.literal(500)]).optional(),
+  kLimit: z.number().int().positive().optional(),
   mode: z.enum(keywordModes).optional(),
   sort: z.enum(keywordSortFields).optional(),
   order: z.enum(sortDirs).optional(),

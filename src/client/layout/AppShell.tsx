@@ -169,14 +169,14 @@ function TopNav({
             <Menu className="h-6 w-6" />
           </button>
         ) : null}
-        <Link to="/" className="ml-1 font-semibold text-base-content">
-          OpenSEO
+        <Link to="/" className="ml-1 flex items-center">
+          <img src="/logo.svg" alt="OpenSEO" className="h-6 w-auto" />
         </Link>
       </div>
 
       <div className="hidden items-center gap-1 md:flex">
-        <Link to="/" className="px-2 text-lg font-semibold text-base-content">
-          OpenSEO
+        <Link to="/" className="px-2 flex items-center">
+          <img src="/logo.svg" alt="OpenSEO" className="h-7 w-auto" />
         </Link>
         {projectId
           ? navGroups.map((entry) => {
