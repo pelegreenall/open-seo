@@ -13,7 +13,7 @@ import { keywordsSearchSchema } from "@/types/schemas/keywords";
 export const Route = createFileRoute("/_project/p/$projectId/keywords")({
   validateSearch: keywordsSearchSchema,
   beforeLoad: ({ params, search }) => {
-    const { normalized, changed } = normalizeLegacyKeywordSearch(search);
+    const { normalized, changed } = normalizeLegacyKeywordSearch(search as any);
     if (!changed) return;
 
     throw redirect({
