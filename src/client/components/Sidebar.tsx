@@ -15,7 +15,7 @@ export function Sidebar({ projectId, onNavigate, onClose }: SidebarProps) {
     <div className="sidebar w-64 border-r border-base-300 h-full bg-base-100 flex flex-col">
       {/* Header */}
       <div className="px-4 py-4 border-b border-base-300 flex items-center justify-between">
-        <span className="font-semibold text-base-content">OpenSEO</span>
+        <img src="/logo.svg" alt="OpenSEO" className="h-6 w-auto" />
         {onClose && (
           <button
             onClick={onClose}
