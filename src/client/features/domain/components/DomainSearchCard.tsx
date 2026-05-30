@@ -22,7 +22,7 @@ export function DomainSearchCard({
   onLocationChange,
 }: Props) {
   return (
-    <div className="card bg-base-100 border border-base-300">
+    <div className="card glass-panel rounded-xl">
       <div className="card-body gap-4">
         <form
           className="flex flex-col gap-3 lg:flex-row lg:items-center"

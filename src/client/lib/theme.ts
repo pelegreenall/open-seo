@@ -55,10 +55,14 @@ function applyThemePreference(themePreference: ThemePreference) {
     return;
   }
 
-  document.documentElement.setAttribute(
-    "data-theme",
-    resolveThemeName(themePreference),
-  );
+  const resolved = resolveThemeName(themePreference);
+  document.documentElement.setAttribute("data-theme", resolved);
+
+  if (resolved === DARK_THEME_NAME) {
+    document.documentElement.classList.add("dark");
+  } else {
+    document.documentElement.classList.remove("dark");
+  }
 }
 
 function subscribeToThemePreference(onStoreChange: () => void) {
@@ -119,6 +123,94 @@ export function useThemePreference() {
   return { themePreference, setThemePreference };
 }
 
+// --- Design Preference ---
+export type DesignPreference = "classic" | "premium";
+
+const DESIGN_STORAGE_KEY = "design-preference";
+const DESIGN_CHANGE_EVENT = "design-preference-change";
+
+function readDesignPreference(): DesignPreference {
+  if (typeof window === "undefined") {
+    return "classic";
+  }
+
+  try {
+    const stored = window.localStorage.getItem(DESIGN_STORAGE_KEY);
+    if (stored === "premium") {
+      return "premium";
+    }
+    return "classic";
+  } catch {
+    return "classic";
+  }
+}
+
+function writeDesignPreference(designPreference: DesignPreference) {
+  try {
+    window.localStorage.setItem(DESIGN_STORAGE_KEY, designPreference);
+  } catch {}
+}
+
+function applyDesignPreference(designPreference: DesignPreference) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  if (designPreference === "premium") {
+    document.documentElement.classList.add("theme-premium");
+  } else {
+    document.documentElement.classList.remove("theme-premium");
+  }
+}
+
+function subscribeToDesignPreference(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const handleDesignChange = () => {
+    onStoreChange();
+  };
+
+  const handleStorage = (event: StorageEvent) => {
+    if (event.key && event.key !== DESIGN_STORAGE_KEY) {
+      return;
+    }
+    onStoreChange();
+  };
+
+  window.addEventListener(DESIGN_CHANGE_EVENT, handleDesignChange);
+  window.addEventListener("storage", handleStorage);
+
+  return () => {
+    window.removeEventListener(DESIGN_CHANGE_EVENT, handleDesignChange);
+    window.removeEventListener("storage", handleStorage);
+  };
+}
+
+export function useDesignPreference() {
+  const designPreference = React.useSyncExternalStore<DesignPreference>(
+    subscribeToDesignPreference,
+    readDesignPreference,
+    () => "classic",
+  );
+
+  React.useEffect(() => {
+    applyDesignPreference(designPreference);
+  }, [designPreference]);
+
+  const setDesignPreference = React.useCallback(
+    (nextDesignPreference: DesignPreference) => {
+      writeDesignPreference(nextDesignPreference);
+      applyDesignPreference(nextDesignPreference);
+      window.dispatchEvent(new Event(DESIGN_CHANGE_EVENT));
+    },
+    [],
+  );
+
+  return { designPreference, setDesignPreference };
+}
+
 export const themePreferenceInitScript = `(() => {
   try {
     var p = window.localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
@@ -127,7 +219,14 @@ export const themePreferenceInitScript = `(() => {
     else if (p === "dark") t = ${JSON.stringify(DARK_THEME_NAME)};
     else t = window.matchMedia("(prefers-color-scheme: dark)").matches ? ${JSON.stringify(DARK_THEME_NAME)} : ${JSON.stringify(LIGHT_THEME_NAME)};
     document.documentElement.setAttribute("data-theme", t);
+    if (t === ${JSON.stringify(DARK_THEME_NAME)}) document.documentElement.classList.add("dark");
+    else document.documentElement.classList.remove("dark");
+
+    var d = window.localStorage.getItem(${JSON.stringify(DESIGN_STORAGE_KEY)});
+    if (d === "premium") document.documentElement.classList.add("theme-premium");
+    else document.documentElement.classList.remove("theme-premium");
   } catch {
     document.documentElement.setAttribute("data-theme", ${JSON.stringify(LIGHT_THEME_NAME)});
   }
 })();`;
+

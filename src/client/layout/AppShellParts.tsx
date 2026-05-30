@@ -93,7 +93,7 @@ function AppContent({
         ) : null}
       </div>
 
-      <div className="hidden md:block flex-1 min-h-0 overflow-auto">
+      <div className="hidden md:block flex-1 min-h-0 overflow-hidden">
         {children}
       </div>
     </>

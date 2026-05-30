@@ -36,3 +36,7 @@ dist-sourcemaps/
 
 # Local Claude config
 .claude/
+
+# OpenSEO local sandbox workspace
+.sandbox-workspace/
+

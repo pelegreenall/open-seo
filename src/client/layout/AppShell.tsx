@@ -2,14 +2,18 @@ import * as React from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  ChevronDown,
   ChevronsUpDown,
   CircleHelp,
   CreditCard,
   Menu,
   Settings,
+  Terminal,
   User,
+  Sparkles,
 } from "lucide-react";
+import { Sidebar } from "@/client/components/Sidebar";
+import { Logo } from "@/client/components/Logo";
+import { ChatSidebar } from "@/client/features/ai-chat/ChatSidebar";
 import {
   AppContent,
   MissingSeoSetupModal,
@@ -56,6 +60,20 @@ export function AuthenticatedAppLayout({
     : null;
   const seoApiKeyStatusError =
     shouldCheckSeoApiKeyStatus && seoApiKeyStatusQuery.isError;
+
+  const [chatOpen, setChatOpen] = React.useState(false);
+  const [chatWidth, setChatWidth] = React.useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const savedWidth = localStorage.getItem("openseo_chat_width");
+      return savedWidth ? parseInt(savedWidth, 10) : 380;
+    }
+    return 380;
+  });
+
+  const handleChatWidthChange = (newWidth: number) => {
+    setChatWidth(newWidth);
+    localStorage.setItem("openseo_chat_width", String(newWidth));
+  };
 
   React.useEffect(() => {
     if (!shouldCheckSeoApiKeyStatus) {
@@ -110,28 +128,55 @@ export function AuthenticatedAppLayout({
   }, [projectId]);
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-base-200">
-      <TopNav
-        drawerOpen={drawerOpen}
-        projectId={headerProjectId}
-        pathname={location.pathname}
-        onOpenDrawer={() => setDrawerOpen(true)}
-      />
+    <div className="flex h-[100dvh] w-screen overflow-hidden bg-base-200">
+      {/* Persistent Left Sidebar on Desktop */}
+      {headerProjectId && (
+        <div className="hidden md:block h-full shrink-0">
+          <Sidebar projectId={headerProjectId} />
+        </div>
+      )}
 
-      <SeoApiStatusBanners
-        shouldShowSeoApiWarning={shouldShowSeoApiWarning}
-        seoApiKeyStatusError={seoApiKeyStatusError}
-      />
+      {/* Main Content Area */}
+      <div className="flex flex-1 flex-col h-full min-w-0 overflow-hidden">
+        <TopNav
+          drawerOpen={drawerOpen}
+          projectId={headerProjectId}
+          pathname={location.pathname}
+          onOpenDrawer={() => setDrawerOpen(true)}
+          chatOpen={chatOpen}
+          onToggleChat={() => setChatOpen((prev) => !prev)}
+        />
 
-      {banner}
+        <SeoApiStatusBanners
+          shouldShowSeoApiWarning={shouldShowSeoApiWarning}
+          seoApiKeyStatusError={seoApiKeyStatusError}
+        />
 
-      <AppContent
-        drawerOpen={drawerOpen}
-        projectId={headerProjectId}
-        onCloseDrawer={() => setDrawerOpen(false)}
-      >
-        {children}
-      </AppContent>
+        {banner}
+
+        <AppContent
+          drawerOpen={drawerOpen}
+          projectId={headerProjectId}
+          onCloseDrawer={() => setDrawerOpen(false)}
+        >
+          {children}
+        </AppContent>
+      </div>
+
+      {/* Chat Sidebar Drawer */}
+      {chatOpen && headerProjectId && (
+        <div
+          style={{ width: `${chatWidth}px` }}
+          className="h-full shrink-0 z-30 flex items-end border-l border-base-300 bg-base-100"
+        >
+          <ChatSidebar
+            projectId={headerProjectId}
+            onClose={() => setChatOpen(false)}
+            width={chatWidth}
+            onWidthChange={handleChatWidthChange}
+          />
+        </div>
+      )}
 
       <MissingSeoSetupModal
         ref={setupModalRef}
@@ -147,17 +192,21 @@ function TopNav({
   projectId,
   pathname,
   onOpenDrawer,
+  chatOpen,
+  onToggleChat,
 }: {
   drawerOpen: boolean;
   projectId: string | null;
   pathname: string;
   onOpenDrawer: () => void;
+  chatOpen: boolean;
+  onToggleChat: () => void;
 }) {
-  const navGroups = projectId ? getProjectNavGroups(projectId) : [];
   const isSupportActive = pathname === SUPPORT_PATH;
+  const isSettingsActive = pathname === "/settings";
 
   return (
-    <div className="navbar shrink-0 gap-2 border-b border-base-300 bg-base-100">
+    <div className="navbar shrink-0 gap-2 border-b border-base-300 bg-base-100 h-16">
       <div className="flex flex-none items-center md:hidden">
         {projectId ? (
           <button
@@ -171,90 +220,12 @@ function TopNav({
           </button>
         ) : null}
         <Link to="/" className="ml-1 flex items-center">
-          <img src="/logo.svg" alt="OpenSEO" className="h-6 w-auto" />
+          <Logo className="h-9 w-auto text-base-content" />
         </Link>
       </div>
 
       <div className="hidden items-center gap-1 md:flex">
-        <Link to="/" className="px-2 flex items-center">
-          <img src="/logo.svg" alt="OpenSEO" className="h-7 w-auto" />
-        </Link>
-        {projectId
-          ? navGroups.map((entry) => {
-              if (entry.type === "standalone") {
-                const { icon: Icon, matchSegment, ...linkProps } = entry.item;
-                const isActive = pathname.includes(matchSegment);
-                return (
-                  <Link
-                    key={linkProps.to}
-                    {...linkProps}
-                    className={`btn btn-sm gap-2 ${
-                      isActive
-                        ? "border-transparent bg-primary/10 font-medium text-primary"
-                        : "btn-ghost text-base-content/60 hover:text-base-content"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {entry.item.label}
-                  </Link>
-                );
-              }
-
-              const GroupIcon = entry.icon;
-              const isGroupActive = entry.matchSegments.some((seg) =>
-                pathname.includes(seg),
-              );
-
-              return (
-                <div key={entry.label} className="dropdown dropdown-hover">
-                  <button
-                    type="button"
-                    tabIndex={0}
-                    className={`btn btn-sm gap-1.5 ${
-                      isGroupActive
-                        ? "border-transparent bg-primary/10 font-medium text-primary"
-                        : "btn-ghost text-base-content/60 hover:text-base-content"
-                    }`}
-                  >
-                    <GroupIcon className="h-4 w-4" />
-                    {entry.label}
-                    <ChevronDown className="h-3 w-3 opacity-50" />
-                  </button>
-                  <ul
-                    tabIndex={0}
-                    className="dropdown-content z-20 menu w-52 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
-                  >
-                    {entry.items.map((item) => {
-                      const { icon: Icon, matchSegment, ...linkProps } = item;
-                      const isActive = pathname.includes(matchSegment);
-                      return (
-                        <li key={linkProps.to}>
-                          <Link
-                            {...linkProps}
-                            className={
-                              isActive
-                                ? "bg-primary/10 font-medium text-primary"
-                                : ""
-                            }
-                            onClick={() => {
-                              if (
-                                document.activeElement instanceof HTMLElement
-                              ) {
-                                document.activeElement.blur();
-                              }
-                            }}
-                          >
-                            <Icon className="h-4 w-4" />
-                            {item.label}
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              );
-            })
-          : null}
+        {/* Navigation is persistent in the left sidebar on desktop */}
       </div>
 
       <div className="flex-1" />
@@ -270,6 +241,32 @@ function TopNav({
             }`}
           >
             <CircleHelp className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <button
+          type="button"
+          onClick={onToggleChat}
+          className={`btn btn-sm gap-1.5 font-semibold transition-all rounded-lg text-xs h-9 min-h-0 ${
+            chatOpen
+              ? "bg-primary text-primary-content hover:bg-primary/95 shadow-sm border-primary"
+              : "btn-ghost border border-base-300 hover:bg-base-200 text-base-content/85"
+          }`}
+        >
+          <Sparkles className="size-3.5" />
+          <span>Ask AI</span>
+        </button>
+
+        <div className="tooltip tooltip-bottom" data-tip="Settings">
+          <Link
+            to="/settings"
+            className={`btn btn-ghost btn-circle btn-sm ${
+              isSettingsActive
+                ? "bg-primary/10 text-primary"
+                : "text-base-content/60 hover:text-base-content"
+            }`}
+          >
+            <Settings className="h-4 w-4" />
           </Link>
         </div>
 

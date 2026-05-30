@@ -183,7 +183,7 @@ export function KeywordResearchPage(input: Props) {
 
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
-      <div className="mx-auto flex max-w-7xl flex-col gap-5">
+      <div className="mx-auto flex max-w-8xl flex-col gap-5">
         <div>
           <h1 className="text-2xl font-semibold">Keyword Research</h1>
           <p className="text-sm text-base-content/70">

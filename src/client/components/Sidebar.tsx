@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronsUpDown, X } from "lucide-react";
 import { getProjectNavGroups } from "@/client/navigation/items";
+import { Logo } from "@/client/components/Logo";
 
 interface SidebarProps {
   projectId: string;
@@ -14,8 +15,8 @@ export function Sidebar({ projectId, onNavigate, onClose }: SidebarProps) {
   return (
     <div className="sidebar w-64 border-r border-base-300 h-full bg-base-100 flex flex-col">
       {/* Header */}
-      <div className="px-4 py-4 border-b border-base-300 flex items-center justify-between">
-        <img src="/logo.svg" alt="OpenSEO" className="h-6 w-auto" />
+      <div className="px-4 border-b border-base-300 flex items-center justify-between h-16 shrink-0">
+        <Logo className="h-9 w-auto text-base-content" />
         {onClose && (
           <button
             onClick={onClose}

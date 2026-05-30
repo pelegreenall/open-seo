@@ -530,7 +530,7 @@ export function DomainOverviewPage({
 
   return (
     <div className="px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
-      <div className="mx-auto max-w-7xl space-y-4">
+      <div className="mx-auto max-w-8xl space-y-4">
         <div>
           <h1 className="text-2xl font-semibold">Domain Overview</h1>
           <p className="text-sm text-base-content/70">

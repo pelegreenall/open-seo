@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { type ThemePreference, useThemePreference } from "@/client/lib/theme";
+import { type ThemePreference, useThemePreference, useDesignPreference } from "@/client/lib/theme";
 import { authClient, useSession } from "@/lib/auth-client";
 import { isHostedClientAuthMode } from "@/lib/auth-mode";
 
@@ -23,6 +23,7 @@ const THEME_OPTIONS: {
 function SettingsPage() {
   const isHosted = isHostedClientAuthMode();
   const { themePreference, setThemePreference } = useThemePreference();
+  const { designPreference, setDesignPreference } = useDesignPreference();
   const { data: session, isPending: isSessionPending } = useSession();
   const [isSaving, setIsSaving] = useState(false);
 
@@ -84,6 +85,42 @@ function SettingsPage() {
                   </button>
                 );
               })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-6 pt-2">
+            <span className="text-sm">Design Style</span>
+            <div
+              role="radiogroup"
+              aria-label="Design preference"
+              className="flex gap-0.5 rounded-lg bg-base-200 p-0.5"
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={designPreference === "classic"}
+                className={`flex cursor-pointer items-center justify-center rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                  designPreference === "classic"
+                    ? "bg-base-100 text-base-content shadow-sm"
+                    : "text-base-content/50 hover:text-base-content/80"
+                }`}
+                onClick={() => setDesignPreference("classic")}
+              >
+                Classic
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={designPreference === "premium"}
+                className={`flex cursor-pointer items-center justify-center rounded-md px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                  designPreference === "premium"
+                    ? "bg-base-100 text-base-content shadow-sm"
+                    : "text-base-content/50 hover:text-base-content/80"
+                }`}
+                onClick={() => setDesignPreference("premium")}
+              >
+                Premium
+              </button>
             </div>
           </div>
         </section>

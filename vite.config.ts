@@ -5,6 +5,7 @@ import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { devtools } from "@tanstack/devtools-vite";
+import { sandboxBridgePlugin } from "./vite-plugins/sandbox-bridge";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -41,6 +42,7 @@ export default defineConfig(({ mode }) => {
       outDir: emitSourcemaps ? "dist-sourcemaps" : "dist",
     },
     plugins: [
+      sandboxBridgePlugin(),
       showDevtools
         ? devtools({
             consolePiping: {
