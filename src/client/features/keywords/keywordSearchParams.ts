@@ -7,7 +7,7 @@ import type {
 type KeywordSearchParams = {
   q?: string;
   loc?: number;
-  kLimit?: ResultLimit;
+  kLimit?: number;
   mode?: KeywordMode;
   sort?: SortField;
   order?: SortDir;

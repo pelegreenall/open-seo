@@ -32,7 +32,7 @@
   "kv_namespaces": [
     {
       "binding": "KV",
-      "id": "4abd52f3f2c549ac83cc2cb4ceec8620",
+      "id": "cbfa5582723844dc824e2440aecfa391",
     },
     {
       "binding": "OAUTH_KV",
@@ -43,7 +43,7 @@
     {
       "binding": "DB",
       "database_name": "open-seo",
-      "database_id": "37bee90a-e1aa-404f-b01e-b0d1d479bda1",
+      "database_id": "3dfbaabe-533b-4091-88cc-352b363f606e",
       "migrations_dir": "drizzle",
     },
   ],
