@@ -1,4 +1,5 @@
 import type { KeywordResearchRow } from "@/types/keywords";
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { formatNumber, scoreTierClass } from "../utils";
 import { IntentBadge } from "./IntentBadge";
 export { SerpAnalysisCard } from "./SerpAnalysisCard";
@@ -17,7 +18,7 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
         <span className="font-bold text-base truncate max-w-[240px] capitalize">
           {keyword.keyword}
         </span>
-        <ScoreBadge value={keyword.keywordDifficulty} />
+        <ScoreBadge value={keyword.keywordDifficulty} size="sm" />
       </div>
 
       <div className="w-px h-6 bg-base-300 shrink-0" />
@@ -47,6 +48,238 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
   );
 }
 
+export function KeywordRow({
+  row,
+  isSelected,
+  isActive,
+  onToggle,
+  onClick,
+}: {
+  row: KeywordResearchRow;
+  isSelected: boolean;
+  isActive: boolean;
+  onToggle: () => void;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 px-4 py-2 border-b border-base-200 text-sm hover:bg-base-200/50 transition-colors cursor-pointer ${
+        isActive ? "bg-primary/5 border-l-2 border-l-primary" : ""
+      }`}
+      onClick={onClick}
+    >
+      <input
+        type="checkbox"
+        className="checkbox checkbox-xs shrink-0"
+        checked={isSelected}
+        onChange={(e) => {
+          e.stopPropagation();
+          onToggle();
+        }}
+        onClick={(e) => e.stopPropagation()}
+      />
+
+      <span
+        className="flex-1 min-w-0 truncate font-medium capitalize"
+        title={row.keyword}
+      >
+        {row.keyword}
+      </span>
+
+      <div className="w-16 flex justify-center">
+        <IntentBadge intent={row.intent} />
+      </div>
+
+      <span className="w-16 text-right tabular-nums text-base-content/70">
+        {formatNumber(row.searchVolume)}
+      </span>
+
+      <div className="w-16 flex justify-end tabular-nums text-xs font-medium">
+        {(() => {
+          let trendPercentage = 0;
+          let trendDirection: "up" | "down" | "stable" = "stable";
+
+          if (row.trend && row.trend.length >= 2) {
+            const sortedTrend = row.trend.toSorted(
+              (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
+            );
+            const first = sortedTrend[0];
+            const last = sortedTrend[sortedTrend.length - 1];
+
+            if (last.searchVolume > first.searchVolume) {
+              trendDirection = "up";
+            } else if (last.searchVolume < first.searchVolume) {
+              trendDirection = "down";
+            }
+
+            if (first.searchVolume !== 0) {
+              trendPercentage =
+                ((last.searchVolume - first.searchVolume) / first.searchVolume) *
+                100;
+            } else if (last.searchVolume !== 0) {
+              trendPercentage = 100;
+            }
+          }
+
+          return (
+            <>
+              {trendDirection === "up" && (
+                <span className="flex items-center gap-0.5 text-success">
+                  <ArrowUpRight className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+              {trendDirection === "down" && (
+                <span className="flex items-center gap-0.5 text-error">
+                  <ArrowDownRight className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+              {trendDirection === "stable" && (
+                <span className="flex items-center gap-0.5 text-base-content/40">
+                  <Minus className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+            </>
+          );
+        })()}
+      </div>
+
+      <span className="w-14 text-right tabular-nums text-base-content/70">
+        {row.cpc == null ? "-" : row.cpc.toFixed(2)}
+      </span>
+      <span className="w-12 text-right tabular-nums text-base-content/70">
+        {row.competition == null ? "-" : row.competition.toFixed(2)}
+      </span>
+
+      <div className="w-10 flex justify-end">
+        <ScoreBadge value={row.keywordDifficulty} size="sm" />
+      </div>
+    </div>
+  );
+}
+
+export function KeywordCard({
+  row,
+  isSelected,
+  isActive,
+  onToggle,
+  onClick,
+}: {
+  row: KeywordResearchRow;
+  isSelected: boolean;
+  isActive: boolean;
+  onToggle: () => void;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className={`bg-base-100 border border-base-300 rounded-lg p-3 space-y-2 cursor-pointer transition-colors ${
+        isActive ? "border-primary bg-primary/5" : "hover:bg-base-200/50"
+      }`}
+      onClick={onClick}
+    >
+      <div className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="checkbox checkbox-sm shrink-0 mt-0.5"
+          checked={isSelected}
+          onChange={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          onClick={(e) => e.stopPropagation()}
+        />
+        <span className="flex-1 font-semibold text-sm capitalize leading-tight">
+          {row.keyword}
+        </span>
+        <ScoreBadge value={row.keywordDifficulty} size="sm" />
+      </div>
+
+      <div className="grid grid-cols-4 gap-2 text-xs">
+        <div className="text-center">
+          <p className="text-base-content/50">Volume</p>
+          <p className="font-medium tabular-nums">
+            {formatNumber(row.searchVolume)}
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="text-base-content/50">Trend</p>
+          <div className="flex justify-center tabular-nums font-medium mt-0.5">
+            {(() => {
+              let trendPercentage = 0;
+              let trendDirection: "up" | "down" | "stable" = "stable";
+
+              if (row.trend && row.trend.length >= 2) {
+                const sortedTrend = row.trend.toSorted(
+                  (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
+                );
+                const first = sortedTrend[0];
+                const last = sortedTrend[sortedTrend.length - 1];
+
+                if (last.searchVolume > first.searchVolume) {
+                  trendDirection = "up";
+                } else if (last.searchVolume < first.searchVolume) {
+                  trendDirection = "down";
+                }
+
+                if (first.searchVolume !== 0) {
+                  trendPercentage =
+                    ((last.searchVolume - first.searchVolume) /
+                      first.searchVolume) *
+                    100;
+                } else if (last.searchVolume !== 0) {
+                  trendPercentage = 100;
+                }
+              }
+
+              return (
+                <>
+                  {trendDirection === "up" && (
+                    <span className="flex items-center gap-0.5 text-success">
+                      <ArrowUpRight className="size-3" />
+                      {trendPercentage.toFixed(0)}%
+                    </span>
+                  )}
+                  {trendDirection === "down" && (
+                    <span className="flex items-center gap-0.5 text-error">
+                      <ArrowDownRight className="size-3" />
+                      {trendPercentage.toFixed(0)}%
+                    </span>
+                  )}
+                  {trendDirection === "stable" && (
+                    <span className="flex items-center gap-0.5 text-base-content/40">
+                      <Minus className="size-3" />
+                      {trendPercentage.toFixed(0)}%
+                    </span>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+        <div className="text-center">
+          <p className="text-base-content/50">CPC</p>
+          <p className="font-medium tabular-nums">
+            {row.cpc == null ? "-" : `$${row.cpc.toFixed(2)}`}
+          </p>
+        </div>
+        <div className="text-center">
+          <p className="text-base-content/50">Comp.</p>
+          <p className="font-medium tabular-nums">
+            {row.competition == null ? "-" : row.competition.toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between pt-1">
+        <IntentBadge intent={row.intent} />
+      </div>
+    </div>
+  );
+}
+
 export function ScoreBadge({
   value,
   size = "sm",
@@ -57,12 +290,14 @@ export function ScoreBadge({
   if (value == null) return null;
 
   const tierClass = scoreTierClass(value);
+  const sizeClasses =
+    size === "lg"
+      ? "size-9 text-sm font-bold"
+      : "size-6 text-[10px] font-semibold";
 
   return (
     <span
-      className={`score-badge ${tierClass} inline-flex items-center justify-center rounded-full ${
-        size === "lg" ? "size-10 text-sm" : "size-6 text-[10px]"
-      } font-semibold`}
+      className={`score-badge ${tierClass} inline-flex items-center justify-center rounded-full ${sizeClasses}`}
     >
       {value}
     </span>
