@@ -4,6 +4,7 @@ import {
   type ColumnDef,
   type RowSelectionState,
 } from "@tanstack/react-table";
+import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import {
   AppDataTable,
   makeSelectionColumn,
@@ -99,6 +100,64 @@ export function KeywordResearchDesktopTable({
           headerClassName: "text-right",
           cellClassName:
             "whitespace-nowrap text-right tabular-nums text-base-content/70",
+        },
+      }),
+      keywordColumnHelper.display({
+        id: "trend",
+        header: () => <span className="block text-right pr-2">Trend</span>,
+        cell: ({ row }) => {
+          const trend = row.original.trend;
+          let trendPercentage = 0;
+          let trendDirection: "up" | "down" | "stable" = "stable";
+
+          if (trend && trend.length >= 2) {
+            const sortedTrend = trend.toSorted(
+              (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
+            );
+            const first = sortedTrend[0];
+            const last = sortedTrend[sortedTrend.length - 1];
+
+            if (last.searchVolume > first.searchVolume) {
+              trendDirection = "up";
+            } else if (last.searchVolume < first.searchVolume) {
+              trendDirection = "down";
+            }
+
+            if (first.searchVolume !== 0) {
+              trendPercentage =
+                ((last.searchVolume - first.searchVolume) / first.searchVolume) *
+                100;
+            } else if (last.searchVolume !== 0) {
+              trendPercentage = 100;
+            }
+          }
+
+          return (
+            <div className="flex justify-end tabular-nums text-xs font-medium pr-1">
+              {trendDirection === "up" && (
+                <span className="flex items-center gap-0.5 text-success">
+                  <ArrowUpRight className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+              {trendDirection === "down" && (
+                <span className="flex items-center gap-0.5 text-error">
+                  <ArrowDownRight className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+              {trendDirection === "stable" && (
+                <span className="flex items-center gap-0.5 text-base-content/40">
+                  <Minus className="size-3" />
+                  {trendPercentage.toFixed(0)}%
+                </span>
+              )}
+            </div>
+          );
+        },
+        meta: {
+          headerClassName: "text-right",
+          cellClassName: "whitespace-nowrap text-right",
         },
       }),
       keywordColumnHelper.accessor("cpc", {

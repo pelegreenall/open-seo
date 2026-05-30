@@ -47,14 +47,22 @@ export function OverviewStats({ keyword }: { keyword: KeywordResearchRow }) {
   );
 }
 
-function ScoreBadge({ value }: { value: number | null }) {
+export function ScoreBadge({
+  value,
+  size = "sm",
+}: {
+  value: number | null;
+  size?: "sm" | "lg";
+}) {
   if (value == null) return null;
 
   const tierClass = scoreTierClass(value);
 
   return (
     <span
-      className={`score-badge ${tierClass} inline-flex items-center justify-center rounded-full size-6 text-[10px] font-semibold`}
+      className={`score-badge ${tierClass} inline-flex items-center justify-center rounded-full ${
+        size === "lg" ? "size-10 text-sm" : "size-6 text-[10px]"
+      } font-semibold`}
     >
       {value}
     </span>

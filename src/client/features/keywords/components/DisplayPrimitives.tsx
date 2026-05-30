@@ -61,11 +61,10 @@ export function HeaderHelpLabel({
 
 export function AreaTrendChart({ trend }: { trend: MonthlySearch[] }) {
   const sorted = sortBy(trend, (item) => item.year * 100 + item.month);
-  const last12 = sorted.slice(-12);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [chartWidth, setChartWidth] = useState(0);
 
-  if (last12.length === 0) return null;
+  if (sorted.length === 0) return null;
 
   useEffect(() => {
     const container = containerRef.current;
@@ -99,7 +98,7 @@ export function AreaTrendChart({ trend }: { trend: MonthlySearch[] }) {
     "Nov",
     "Dec",
   ];
-  const data = last12.map((m) => ({
+  const data = sorted.map((m) => ({
     month: monthLabels[m.month - 1],
     year: m.year,
     searchVolume: m.searchVolume,
