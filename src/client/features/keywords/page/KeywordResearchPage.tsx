@@ -182,7 +182,7 @@ export function KeywordResearchPage(input: Props) {
   }, [controller.controlsForm, searchTabs.tabs]);
 
   return (
-    <div className="px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
+    <div className="h-full px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
       <div className="mx-auto flex max-w-8xl flex-col gap-5">
         <div>
           <h1 className="text-2xl font-semibold">Keyword Research</h1>

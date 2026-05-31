@@ -6,7 +6,7 @@ export const Route = createFileRoute("/_project/p/$projectId/rank-tracking")({
 
 function RankTrackingLayout() {
   return (
-    <div className="px-4 py-4 pb-24 overflow-auto md:px-6 md:py-6 md:pb-8">
+    <div className="h-full px-4 py-4 pb-24 overflow-auto md:px-6 md:py-6 md:pb-8">
       <div className="mx-auto max-w-7xl space-y-4">
         <div>
           <h1 className="text-2xl font-semibold">Rank Tracking</h1>

@@ -8,7 +8,7 @@ export const Route = createFileRoute("/_app/help/dataforseo-api-key")({
 
 function DataforseoApiKeyHelpPage() {
   return (
-    <div className="px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
+    <div className="h-full px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
       <div className="mx-auto max-w-3xl space-y-4">
         <div className="card bg-base-100 border border-base-300">
           <div className="card-body gap-3">
