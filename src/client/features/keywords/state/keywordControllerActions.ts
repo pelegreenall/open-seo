@@ -3,7 +3,6 @@ import { toast } from "sonner";
 import { buildCsv, type CsvValue, downloadCsv } from "@/client/lib/csv";
 import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
-import { getLanguageCode } from "@/client/features/keywords/utils";
 import type { KeywordResearchRow } from "@/types/keywords";
 import type { SaveKeywordsInput } from "@/types/schemas/keywords";
 import type { SortDir, SortField } from "@/client/features/keywords/components";
@@ -62,15 +61,17 @@ export function parseKeywordInput(value: string) {
  */
 export function buildKeywordSearchKey(params: {
   keyword: string;
-  locationCode: number;
+  locationCode: number | undefined;
   resultLimit: ResultLimit;
   mode: KeywordMode;
+  clickstream: boolean;
 }) {
   return [
     parseKeywordInput(params.keyword).join(""),
     params.locationCode,
     params.resultLimit,
     params.mode,
+    params.clickstream ? "cs" : "",
   ].join("|");
 }
 
@@ -125,7 +126,6 @@ export function useSaveAndExportActions(params: SaveExportActionParams) {
         projectId: input.projectId,
         keywords: [...selectedRows],
         locationCode: input.locationCode,
-        languageCode: getLanguageCode(input.locationCode),
         metrics,
       },
       {

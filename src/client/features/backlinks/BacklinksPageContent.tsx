@@ -1,29 +1,23 @@
 import { useMemo } from "react";
-import {
-  BacklinksOverviewPanels,
-  BacklinksResultsCard,
-} from "./BacklinksPageSections";
+import type { OnChangeFn, SortingState } from "@tanstack/react-table";
+import { BacklinksOverviewPanels } from "./BacklinksOverviewPanels";
+import { BacklinksResultsCard } from "./BacklinksPageSections";
 import {
   BacklinksErrorState,
   BacklinksLoadingState,
-  BacklinksSetupGate,
 } from "./BacklinksPageStates";
 import { BacklinksHistorySection } from "./BacklinksHistorySection";
 import type { BacklinksSearchHistoryItem } from "@/client/hooks/useBacklinksSearchHistory";
 import type {
   BacklinksOverviewData,
   BacklinksReferringDomainsData,
+  BacklinksRowsPageData,
   BacklinksSearchState,
+  BacklinksTabRows,
   BacklinksTopPagesData,
 } from "./backlinksPageTypes";
-import type { UseAccessGateResult } from "@/client/features/access-gate/useAccessGate";
-import { AccessGateLoadingState } from "@/client/features/access-gate/AccessGate";
 import { buildSummaryStats } from "./backlinksPageUtils";
-import {
-  filterBacklinkRows,
-  filterReferringDomainRows,
-  filterTopPageRows,
-} from "./backlinksFiltering";
+import type { BacklinksDomainExpansion } from "./useBacklinksDomainExpansion";
 import type { BacklinksFiltersState } from "./useBacklinksFilters";
 import {
   SearchTabStrip,
@@ -32,22 +26,28 @@ import {
 
 type BacklinksBodyProps = {
   projectId: string;
-  accessGate: UseAccessGateResult;
-  backlinksDisabledByError: boolean;
   history: BacklinksSearchHistoryItem[];
   historyLoaded: boolean;
   overviewData: BacklinksOverviewData | undefined;
   overviewError: string | null;
   overviewLoading: boolean;
-  referringDomains: BacklinksReferringDomainsData | undefined;
+  backlinksRowsPage: BacklinksRowsPageData | undefined;
+  referringDomainsPage: BacklinksReferringDomainsData | undefined;
+  topPagesPage: BacklinksTopPagesData | undefined;
   searchState: BacklinksSearchState;
   filters: BacklinksFiltersState;
+  sorting: SortingState;
+  domainExpansion: BacklinksDomainExpansion;
   tabErrorMessage: string | null;
   tabLoading: boolean;
-  topPages: BacklinksTopPagesData | undefined;
+  tabFetching: boolean;
+  onPageChange: (nextPage: number) => void;
+  onPageSizeChange: (nextPageSize: number) => void;
   onRemoveHistoryItem: (timestamp: number) => void;
   onRetryOverview: () => void;
+  onSortingChange: OnChangeFn<SortingState>;
   onTabChange: (tab: BacklinksSearchState["tab"]) => void;
+  onViewChange: (view: "all" | undefined) => void;
   searchTabs: {
     activeTabId: string | null;
     tabs: SearchTab[];
@@ -59,52 +59,47 @@ type BacklinksBodyProps = {
 
 export function BacklinksBody({
   projectId,
-  accessGate,
-  backlinksDisabledByError,
   history,
   historyLoaded,
   overviewData,
   overviewError,
   overviewLoading,
-  referringDomains,
+  backlinksRowsPage,
+  referringDomainsPage,
+  topPagesPage,
   searchState,
   filters,
+  sorting,
+  domainExpansion,
   tabErrorMessage,
   tabLoading,
-  topPages,
+  tabFetching,
+  onPageChange,
+  onPageSizeChange,
   onRemoveHistoryItem,
   onRetryOverview,
+  onSortingChange,
   onTabChange,
+  onViewChange,
   searchTabs,
 }: BacklinksBodyProps) {
-  const mergedData = useMemo(
-    () => mergeTabData(overviewData, referringDomains, topPages),
-    [overviewData, referringDomains, topPages],
+  const tabRows = useMemo<BacklinksTabRows>(
+    () => ({
+      backlinks: backlinksRowsPage?.rows ?? [],
+      referringDomains: referringDomainsPage?.rows ?? [],
+      topPages: topPagesPage?.rows ?? [],
+    }),
+    [backlinksRowsPage, referringDomainsPage, topPagesPage],
   );
-  const filteredData = useMemo(() => {
-    if (!mergedData) {
-      return { backlinks: [], referringDomains: [], topPages: [] };
-    }
-    return {
-      backlinks: filterBacklinkRows(
-        mergedData.backlinks,
-        filters.backlinks.values,
-      ),
-      referringDomains: filterReferringDomainRows(
-        mergedData.referringDomains,
-        filters.domains.values,
-      ),
-      topPages: filterTopPageRows(mergedData.topPages, filters.pages.values),
-    };
-  }, [
-    mergedData,
-    filters.backlinks.values,
-    filters.domains.values,
-    filters.pages.values,
-  ]);
+  const activeTabPage =
+    searchState.tab === "backlinks"
+      ? backlinksRowsPage
+      : searchState.tab === "domains"
+        ? referringDomainsPage
+        : topPagesPage;
   const summaryStats = useMemo(
-    () => buildSummaryStats(mergedData),
-    [mergedData],
+    () => buildSummaryStats(overviewData),
+    [overviewData],
   );
   const tabStrip = searchTabs ? (
     <SearchTabStrip
@@ -116,29 +111,6 @@ export function BacklinksBody({
       onViewed={searchTabs.onViewed}
     />
   ) : null;
-
-  if (accessGate.isLoading) {
-    return <AccessGateLoadingState />;
-  }
-
-  if (accessGate.statusErrorMessage) {
-    return (
-      <BacklinksErrorState
-        errorMessage={accessGate.statusErrorMessage}
-        onRetry={accessGate.onRetry}
-      />
-    );
-  }
-
-  if (!accessGate.enabled || backlinksDisabledByError) {
-    return (
-      <BacklinksSetupGate
-        errorMessage={accessGate.errorMessage}
-        isRefetching={accessGate.isRefetching}
-        onRetry={accessGate.onRetry}
-      />
-    );
-  }
 
   if (!searchState.target) {
     return (
@@ -160,7 +132,7 @@ export function BacklinksBody({
     );
   }
 
-  if (!mergedData) {
+  if (!overviewData) {
     return (
       <>
         {tabStrip}
@@ -177,36 +149,34 @@ export function BacklinksBody({
       {tabStrip}
       <BacklinksOverviewPanels
         projectId={projectId}
-        data={mergedData}
+        data={overviewData}
         summaryStats={summaryStats}
       />
       <BacklinksResultsCard
+        projectId={projectId}
         activeTab={searchState.tab}
-        filteredData={filteredData}
+        scope={searchState.scope}
+        tabRows={tabRows}
         filters={filters}
-        isTabLoading={searchState.tab !== "backlinks" && tabLoading}
-        tabErrorMessage={
-          searchState.tab !== "backlinks" ? tabErrorMessage : null
-        }
-        exportTarget={mergedData.displayTarget || searchState.target}
+        sorting={sorting}
+        view={searchState.view}
+        domainExpansion={domainExpansion}
+        isTabLoading={tabLoading}
+        tabErrorMessage={tabErrorMessage}
+        exportTarget={overviewData.displayTarget || searchState.target}
+        pagination={{
+          page: searchState.page,
+          pageSize: searchState.pageSize,
+          totalCount: activeTabPage?.totalCount ?? null,
+          hasNextPage: activeTabPage?.hasMore ?? false,
+          isFetching: tabFetching,
+        }}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        onSortingChange={onSortingChange}
         onTabChange={onTabChange}
+        onViewChange={onViewChange}
       />
     </>
   );
-}
-
-function mergeTabData(
-  data: BacklinksOverviewData | undefined,
-  referringDomains: BacklinksReferringDomainsData | undefined,
-  topPages: BacklinksTopPagesData | undefined,
-) {
-  if (!data) {
-    return undefined;
-  }
-
-  return {
-    ...data,
-    referringDomains: referringDomains ?? data.referringDomains,
-    topPages: topPages ?? data.topPages,
-  };
 }

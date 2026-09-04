@@ -1,4 +1,5 @@
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
+import { toSqliteTimestamp } from "@/server/features/rank-tracking/rankTrackingTimestamps";
 import { AppError } from "@/server/lib/errors";
 import type { ComparePeriod } from "@/types/schemas/rank-tracking";
 import type {
@@ -23,31 +24,41 @@ export async function getLatestResults(
   comparePeriod: ComparePeriod = "7d",
 ): Promise<{
   rows: RankTrackingRow[];
-  run: { id: string; lastCheckedAt: string } | null;
+  run: {
+    id: string;
+    lastCheckedAt: string | null;
+    status: "pending" | "running" | "completed" | "failed";
+    errorMessage: string | null;
+  } | null;
 }> {
-  const config = await RankTrackingRepository.getConfigById({
-    configId,
-    projectId,
-  });
+  const days = PERIOD_DAYS[comparePeriod];
+  const targetDate = toSqliteTimestamp(
+    new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+  );
+
+  // All four reads key off the inputs alone, so run them in one parallel round
+  // trip instead of four sequential ones — this endpoint is hot and the DB may
+  // be a continent away. The project-scoped config lookup doubles as the
+  // authorization gate for the configId-keyed reads racing alongside it: when
+  // config is null, throw without returning anything from the other reads.
+  const [
+    config,
+    activeKeywords,
+    currentSnapshots,
+    comparisonSnapshots,
+    latestRun,
+  ] = await Promise.all([
+    RankTrackingRepository.getConfigById({ configId, projectId }),
+    RankTrackingRepository.getKeywordsForConfig(configId),
+    // Latest snapshot per keyword per device (across all completed runs)
+    RankTrackingRepository.getLatestSnapshotsForKeywords(configId),
+    // Comparison snapshots from before the target date
+    RankTrackingRepository.getSnapshotsBeforeDate(configId, targetDate),
+    RankTrackingRepository.getLatestRunForConfig(configId),
+  ]);
   if (!config) {
     throw new AppError("INTERNAL_ERROR", "Rank tracking config not found");
   }
-
-  const activeKeywords =
-    await RankTrackingRepository.getKeywordsForConfig(configId);
-
-  // Get the latest snapshot per keyword per device (across all completed runs)
-  const currentSnapshots =
-    await RankTrackingRepository.getLatestSnapshotsForKeywords(configId);
-
-  // Get comparison snapshots from before the target date
-  const days = PERIOD_DAYS[comparePeriod];
-  const targetDate = new Date(
-    Date.now() - days * 24 * 60 * 60 * 1000,
-  ).toISOString();
-
-  const comparisonSnapshots =
-    await RankTrackingRepository.getSnapshotsBeforeDate(configId, targetDate);
 
   const previousPositions = new Map<string, number | null>();
   for (const snap of comparisonSnapshots) {
@@ -102,8 +113,8 @@ export async function getLatestResults(
     ]),
   );
 
-  // Determine the most recent snapshot time for the run info
-  let latestRunId: string | null = null;
+  // Freshness comes from the newest snapshot regardless of which run wrote
+  // it, so a newer failed run doesn't erase the date of the results shown.
   let latestStartedAt: string | null = null;
 
   for (const snapshot of currentSnapshots) {
@@ -116,19 +127,21 @@ export async function getLatestResults(
       ) ?? null,
     );
 
-    // Track the most recent run for the header display
     if (!latestStartedAt || snapshot.checkedAt > latestStartedAt) {
-      latestRunId = snapshot.runId;
       latestStartedAt = snapshot.checkedAt;
     }
   }
 
   return {
     rows: [...rows.values()],
-    run:
-      latestRunId && latestStartedAt
-        ? { id: latestRunId, lastCheckedAt: latestStartedAt }
-        : null,
+    run: latestRun
+      ? {
+          id: latestRun.id,
+          lastCheckedAt: latestStartedAt,
+          status: latestRun.status,
+          errorMessage: latestRun.errorMessage,
+        }
+      : null,
   };
 }
 

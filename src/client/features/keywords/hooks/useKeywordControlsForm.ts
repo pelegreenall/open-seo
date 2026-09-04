@@ -11,20 +11,12 @@ import {
 } from "@/client/features/keywords/keywordResearchTypes";
 import { parseKeywordInput } from "@/client/features/keywords/state/keywordControllerActions";
 
-type KeywordTabValidationInput = {
-  keyword: string;
-  locationCode: number;
-  resultLimit: ResultLimit;
-  mode: KeywordMode;
-};
-
 type UseKeywordControlsFormInput = {
   keywordInput: string;
   locationCode: number;
   resultLimit: ResultLimit;
   keywordMode: KeywordMode;
-  getOpenKeywordTabs?: () => readonly KeywordTabValidationInput[];
-  keywordTabsLimit?: number;
+  clickstream: boolean;
 };
 
 export type KeywordControlsValues = {
@@ -32,6 +24,7 @@ export type KeywordControlsValues = {
   locationCode: number;
   resultLimit: ResultLimit;
   mode: KeywordMode;
+  clickstream: boolean;
 };
 
 function getKeywordSearchValidationErrors(
@@ -63,60 +56,6 @@ function getKeywordSearchValidationErrors(
   return null;
 }
 
-function getKeywordTabCapacityError(
-  value: KeywordControlsValues,
-  openKeywordTabs: readonly KeywordTabValidationInput[] | undefined,
-  keywordTabsLimit: number | undefined,
-) {
-  if (!openKeywordTabs || keywordTabsLimit == null) return null;
-
-  const keywords = parseKeywordInput(value.keyword);
-  if (keywords.length === 0) return null;
-
-  let simulatedOpenTabs = [...openKeywordTabs];
-  let skippedCount = 0;
-
-  for (const keyword of keywords) {
-    const input = {
-      keyword,
-      locationCode: value.locationCode,
-      resultLimit: value.resultLimit,
-      mode: value.mode,
-    };
-    const alreadyOpen = simulatedOpenTabs.some((tab) =>
-      keywordTabMatches(tab, input),
-    );
-    if (alreadyOpen) continue;
-
-    if (simulatedOpenTabs.length >= keywordTabsLimit) {
-      skippedCount += 1;
-      continue;
-    }
-
-    simulatedOpenTabs = [...simulatedOpenTabs, input];
-  }
-
-  if (skippedCount === 0) return null;
-
-  return createFormValidationErrors({
-    fields: {
-      keyword: `${skippedCount} keyword${skippedCount === 1 ? "" : "s"} skipped - close a tab to open more (max ${keywordTabsLimit}).`,
-    },
-  });
-}
-
-function keywordTabMatches(
-  tab: KeywordTabValidationInput,
-  input: KeywordTabValidationInput,
-) {
-  return (
-    tab.keyword === input.keyword &&
-    tab.locationCode === input.locationCode &&
-    tab.resultLimit === input.resultLimit &&
-    tab.mode === input.mode
-  );
-}
-
 export function useKeywordControlsForm(
   input: UseKeywordControlsFormInput,
   onSubmit: (value: KeywordControlsValues) => void,
@@ -127,6 +66,7 @@ export function useKeywordControlsForm(
       locationCode: input.locationCode,
       resultLimit: input.resultLimit,
       mode: input.keywordMode,
+      clickstream: input.clickstream,
     },
     validators: {
       onChange: ({ formApi, value }) =>
@@ -136,12 +76,7 @@ export function useKeywordControlsForm(
           false,
         ),
       onSubmit: ({ value }) =>
-        getKeywordSearchValidationErrors(value, true, true) ??
-        getKeywordTabCapacityError(
-          value,
-          input.getOpenKeywordTabs?.(),
-          input.keywordTabsLimit,
-        ),
+        getKeywordSearchValidationErrors(value, true, true),
     },
     onSubmit: ({ value }) => {
       onSubmit(value);
@@ -154,6 +89,7 @@ export function useKeywordControlsForm(
       locationCode: input.locationCode,
       resultLimit: input.resultLimit,
       mode: input.keywordMode,
+      clickstream: input.clickstream,
     });
   }, [
     form,
@@ -161,6 +97,7 @@ export function useKeywordControlsForm(
     input.keywordMode,
     input.locationCode,
     input.resultLimit,
+    input.clickstream,
   ]);
 
   return form;

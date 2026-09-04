@@ -16,7 +16,7 @@ import {
   formatStartedAt,
   HttpStatusBadge,
   StatusBadge,
-  SUPPORT_URL,
+  SUPPORT_EMAIL,
 } from "@/client/features/audit/shared";
 
 export const Route = createFileRoute<"/_project/p/$projectId/audit/">(
@@ -72,7 +72,7 @@ function AuditDetail({
   auditId: string;
   tab: string;
   onBack: () => void;
-  onTabChange: (tab: "pages" | "performance") => void;
+  onTabChange: (tab: "issues" | "pages" | "performance") => void;
 }) {
   const statusQuery = useQuery({
     queryKey: ["audit-status", projectId, auditId],
@@ -87,10 +87,13 @@ function AuditDetail({
   const isFailed = statusQuery.data?.status === "failed";
   const isRunning = statusQuery.data?.status === "running";
 
+  // Failed audits keep whatever pages were crawled before the failure
+  // (persistence is per-batch), so fetch results for them too and show the
+  // partial crawl instead of a dead end.
   const resultsQuery = useQuery({
     queryKey: ["audit-results", projectId, auditId],
     queryFn: () => getAuditResults({ data: { projectId, auditId } }),
-    enabled: isComplete,
+    enabled: isComplete || isFailed,
   });
 
   if (statusQuery.isLoading) {
@@ -118,8 +121,15 @@ function AuditDetail({
   }
 
   const status = statusQuery.data;
+  const partialPageCount = isFailed
+    ? (resultsQuery.data?.pages.length ?? 0)
+    : 0;
+  const failedWithResults = isFailed && partialPageCount > 0;
+  // Wait for the results fetch before choosing between the "partial results"
+  // banner and the zero-page support CTA, so the CTA doesn't flash first.
   const showSupportCta =
-    isFailed || (isComplete && status && status.pagesCrawled <= 1);
+    (isFailed && resultsQuery.isSuccess && !failedWithResults) ||
+    (isComplete && status && status.pagesCrawled <= 1);
 
   return (
     <div className="h-full px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">
@@ -128,16 +138,17 @@ function AuditDetail({
           <button className="btn btn-ghost btn-sm px-0" onClick={onBack}>
             &larr; All audits
           </button>
-          <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-semibold">Site Audit</h1>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h1 className="text-2xl font-semibold">
+              {status ? extractHostname(status.startUrl) : "Site Audit"}
+            </h1>
             {status?.status !== "running" && status && (
               <StatusBadge status={status.status} />
             )}
           </div>
           {status && (
-            <p className="text-sm text-base-content/70">
-              {extractHostname(status.startUrl)} &middot; Started{" "}
-              {formatStartedAt(status.startedAt)}
+            <p className="text-sm text-base-content/60">
+              Site audit &middot; Started {formatStartedAt(status.startedAt)}
             </p>
           )}
         </div>
@@ -160,23 +171,56 @@ function AuditDetail({
                 Site audit couldn't fully crawl this website.
               </p>
               <p>
-                This is often caused by anti-bot or firewall settings. Reach out
-                at{" "}
+                Sorry! This site's bot protection blocked our crawler. We don't
+                have a workaround for this yet. Desktop crawlers run from your
+                own machine and usually get past it: try{" "}
                 <a
                   className="link link-primary"
-                  href={SUPPORT_URL}
+                  href="https://github.com/PhialsBasement/LibreCrawl"
                   target="_blank"
                   rel="noreferrer"
                 >
-                  everyapp.dev/support
+                  LibreCrawl
                 </a>{" "}
-                and we'll help configure auditing for your site.
+                (free, open source) or{" "}
+                <a
+                  className="link link-primary"
+                  href="https://www.screamingfrog.co.uk/seo-spider/"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Screaming Frog
+                </a>{" "}
+                (free up to 500 URLs).
               </p>
             </div>
           </div>
         )}
 
-        {isComplete && resultsQuery.data && (
+        {failedWithResults && (
+          <div className="alert alert-warning">
+            <AlertCircle className="size-5" />
+            <div className="space-y-1">
+              <p className="font-medium">
+                This audit stopped early after {partialPageCount} page
+                {partialPageCount === 1 ? "" : "s"}.
+              </p>
+              <p>
+                The results below cover everything crawled before it stopped.
+                Run a new audit to try again, or email{" "}
+                <a
+                  className="link link-primary"
+                  href={`mailto:${SUPPORT_EMAIL}`}
+                >
+                  {SUPPORT_EMAIL}
+                </a>{" "}
+                if this keeps happening.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {(isComplete || failedWithResults) && resultsQuery.data && (
           <ResultsView
             projectId={projectId}
             data={resultsQuery.data}

@@ -8,10 +8,8 @@ import {
   type DomainSearchParams,
 } from "@/types/schemas/domain";
 import {
-  DEFAULT_LOCATION_CODE,
   LOCATIONS,
-  getLanguageCode,
-  isSupportedLocationCode,
+  isLabsLocationCode,
 } from "@/client/features/keywords/locations";
 import { useDomainSearchHistory } from "@/client/hooks/useDomainSearchHistory";
 import type { DomainSearchHistoryItem } from "@/client/hooks/useDomainSearchHistory";
@@ -32,10 +30,17 @@ import { useSearchTabNavigation } from "@/client/features/search-tabs/useSearchT
 import {
   formatMetric,
   getDefaultSortOrder,
-  normalizeDomainTarget,
+  getResearchInputPath,
   toSortOrderSearchParam,
   toSortSearchParam,
 } from "@/client/features/domain/utils";
+import {
+  RESEARCH_SCOPE_LABELS,
+  defaultScopeForPath,
+  parseResearchTarget,
+  toScopeSearchParam,
+  type ResearchScope,
+} from "@/shared/researchScope";
 import {
   createFormValidationErrors,
   shouldValidateFieldOnChange,
@@ -80,10 +85,13 @@ function getSortSearchUpdate(
   };
 }
 
-function getLocationSearchUpdate(nextLocationCode: number): DomainSearchUpdate {
+function getLocationSearchUpdate(
+  nextLocationCode: number,
+  defaultLocationCode: number,
+): DomainSearchUpdate {
   return {
     loc:
-      nextLocationCode === DEFAULT_LOCATION_CODE ? undefined : nextLocationCode,
+      nextLocationCode === defaultLocationCode ? undefined : nextLocationCode,
     page: undefined,
   };
 }
@@ -122,48 +130,52 @@ function getTabSearchUpdate(
 
 function getHistorySearchUpdate(
   item: DomainSearchHistoryItem,
+  defaultLocationCode: number,
 ): DomainSearchUpdate {
   const historyLocation =
-    item.locationCode != null && isSupportedLocationCode(item.locationCode)
+    item.locationCode != null && isLabsLocationCode(item.locationCode)
       ? item.locationCode
-      : DEFAULT_LOCATION_CODE;
+      : defaultLocationCode;
 
   return {
     ...buildDomainFiltersClearSearchUpdate(),
     domain: item.domain,
-    subdomains: item.subdomains ? undefined : false,
+    scope: toScopeSearchParam(item.domain, item.scope),
+    subdomains: undefined,
     sort: toSortSearchParam(item.sort),
     order: undefined,
     tab: item.tab === "keywords" ? undefined : item.tab,
-    loc:
-      historyLocation === DEFAULT_LOCATION_CODE ? undefined : historyLocation,
+    loc: historyLocation === defaultLocationCode ? undefined : historyLocation,
     size: undefined,
   };
 }
 
 function getSearchSubmitUpdate({
   domain,
-  subdomains,
+  scope,
   sort,
   locationCode,
   currentOrder,
   activeTab,
+  defaultLocationCode,
 }: {
   domain: string;
-  subdomains: boolean;
+  scope: ResearchScope;
   sort: DomainSortMode;
   locationCode: number;
   currentOrder: SortOrder;
   activeTab: DomainActiveTab;
+  defaultLocationCode: number;
 }): DomainSearchUpdate {
   return {
     ...buildDomainFiltersClearSearchUpdate(),
     domain,
-    subdomains: subdomains ? undefined : false,
+    scope: toScopeSearchParam(domain, scope),
+    subdomains: undefined,
     sort: toSortSearchParam(sort),
     order: toSortOrderSearchParam(sort, currentOrder),
     tab: activeTab === "keywords" ? undefined : activeTab,
-    loc: locationCode === DEFAULT_LOCATION_CODE ? undefined : locationCode,
+    loc: locationCode === defaultLocationCode ? undefined : locationCode,
     size: undefined,
   };
 }
@@ -178,6 +190,9 @@ function useDomainOverviewState({
   projectId: string;
 }) {
   const lastTrackedKey = useRef<string>("");
+  // While editing the domain input, the scope tracks the input's default until
+  // the user picks one; a pick survives further edits unless it turns invalid.
+  const userPickedScope = useRef(false);
 
   const {
     history,
@@ -205,9 +220,14 @@ function useDomainOverviewState({
 
   const applyLocationChange = useCallback(
     (nextLocationCode: number) => {
-      setSearchParams(getLocationSearchUpdate(nextLocationCode));
+      setSearchParams(
+        getLocationSearchUpdate(
+          nextLocationCode,
+          routeState.defaultLocationCode,
+        ),
+      );
     },
-    [setSearchParams],
+    [routeState.defaultLocationCode, setSearchParams],
   );
 
   const handleSortColumnClick = useCallback(
@@ -246,26 +266,26 @@ function useDomainOverviewState({
 
   const handleHistorySelect = useCallback(
     (item: DomainSearchHistoryItem) => {
-      setSearchParams(getHistorySearchUpdate(item));
+      setSearchParams(
+        getHistorySearchUpdate(item, routeState.defaultLocationCode),
+      );
     },
-    [setSearchParams],
+    [routeState.defaultLocationCode, setSearchParams],
   );
 
-  const languageCode = getLanguageCode(routeState.locationCode);
   const overviewQuery = useDomainOverviewQuery({
     projectId,
     domain: routeState.domain,
-    includeSubdomains: routeState.subdomains,
-    locationCode: routeState.locationCode,
-    languageCode,
+    scope: routeState.scope,
+    locationCode: routeState.sentLocationCode,
   });
   const overview = overviewQuery.data ?? null;
-  const isLoading = overviewQuery.isLoading;
+  const isLoading = routeState.domain.trim() !== "" && overviewQuery.isLoading;
 
   const controlsForm = useForm({
     defaultValues: {
       domain: routeState.domain,
-      subdomains: routeState.subdomains,
+      scope: routeState.scope,
       sort: routeState.sort,
       locationCode: routeState.locationCode,
     },
@@ -279,26 +299,30 @@ function useDomainOverviewState({
       onSubmit: ({ value }) => getDomainSearchValidationErrors(value),
     },
     onSubmit: ({ formApi, value }) => {
-      const target = normalizeDomainTarget(value.domain);
-      if (!target) return;
-      formApi.setFieldValue("domain", target);
+      const parsed = parseResearchTarget(value.domain, value.scope);
+      if (!parsed.ok) return;
+      const target = parsed.target;
+      formApi.setFieldValue("domain", target.display);
+      formApi.setFieldValue("scope", target.scope);
       setSearchParams(
         getSearchSubmitUpdate({
-          domain: target,
-          subdomains: value.subdomains,
+          domain: target.display,
+          scope: target.scope,
           sort: value.sort,
           locationCode: value.locationCode,
           currentOrder: routeState.order,
           activeTab: routeState.tab,
+          defaultLocationCode: routeState.defaultLocationCode,
         }),
       );
     },
   });
 
   useEffect(() => {
+    userPickedScope.current = false;
     controlsForm.reset({
       domain: routeState.domain,
-      subdomains: routeState.subdomains,
+      scope: routeState.scope,
       sort: routeState.sort,
       locationCode: routeState.locationCode,
     });
@@ -306,9 +330,28 @@ function useDomainOverviewState({
     controlsForm,
     routeState.domain,
     routeState.locationCode,
+    routeState.scope,
     routeState.sort,
-    routeState.subdomains,
   ]);
+
+  const handleDomainChange = useCallback(
+    (nextDomain: string) => {
+      // An explicit pick sticks even when it stops fitting the input (e.g.
+      // Subfolder after the path is deleted) — submit validation explains
+      // instead of the select silently changing under the user.
+      if (userPickedScope.current) return;
+      const path = getResearchInputPath(nextDomain);
+      const nextScope = defaultScopeForPath(path);
+      if (nextScope !== controlsForm.getFieldValue("scope")) {
+        controlsForm.setFieldValue("scope", nextScope);
+      }
+    },
+    [controlsForm],
+  );
+
+  const handleScopeChange = useCallback(() => {
+    userPickedScope.current = true;
+  }, []);
 
   useEffect(() => {
     controlsForm.setErrorMap({
@@ -325,19 +368,19 @@ function useDomainOverviewState({
 
   useEffect(() => {
     if (!overviewQuery.isSuccess || !overview) return;
-    const key = `${routeState.domain}|${routeState.subdomains}|${routeState.locationCode}`;
+    const key = `${routeState.domain}|${routeState.scope}|${routeState.locationCode}`;
     if (lastTrackedKey.current === key) return;
     lastTrackedKey.current = key;
 
     captureClientEvent("domain_overview:search_complete", {
       sort_mode: routeState.sort,
-      include_subdomains: routeState.subdomains,
+      scope: routeState.scope,
       result_count: overview.organicKeywords ?? 0,
       location_code: routeState.locationCode,
     });
     addSearch({
       domain: routeState.domain,
-      subdomains: routeState.subdomains,
+      scope: routeState.scope,
       sort: routeState.sort,
       tab: routeState.tab,
       locationCode: routeState.locationCode,
@@ -351,8 +394,8 @@ function useDomainOverviewState({
     overviewQuery.isSuccess,
     routeState.domain,
     routeState.locationCode,
+    routeState.scope,
     routeState.sort,
-    routeState.subdomains,
     routeState.tab,
   ]);
 
@@ -389,10 +432,11 @@ function useDomainOverviewState({
     history,
     historyLoaded,
     removeHistoryItem,
-    languageCode,
     setSearchParams,
     applySort,
     applyLocationChange,
+    handleDomainChange,
+    handleScopeChange,
     handleTabChange,
     handleSortColumnClick,
     handleHistorySelect,
@@ -412,16 +456,20 @@ export function DomainOverviewPage({
   navigate,
   onShowRecentSearches,
 }: Props) {
-  const state = useDomainOverviewState({ navigate, routeState, projectId });
+  const state = useDomainOverviewState({
+    navigate,
+    routeState,
+    projectId,
+  });
   const urlTabInput = useMemo<SearchTabInput | null>(() => {
     if (routeState.domain.trim() === "") return null;
     return {
       type: "domain",
       domain: routeState.domain,
-      subdomains: routeState.subdomains,
-      locationCode: routeState.locationCode,
+      scope: routeState.scope,
+      locationCode: routeState.sentLocationCode,
     };
-  }, [routeState.domain, routeState.locationCode, routeState.subdomains]);
+  }, [routeState.domain, routeState.scope, routeState.sentLocationCode]);
 
   const navigateToSearchTab = useCallback(
     (input: SearchTabInput | null) => {
@@ -438,15 +486,13 @@ export function DomainOverviewPage({
           ...prev,
           ...buildDomainFiltersClearSearchUpdate(),
           domain: input.domain,
-          subdomains: input.subdomains ? undefined : false,
+          scope: toScopeSearchParam(input.domain, input.scope),
+          subdomains: undefined,
           sort: undefined,
           order: undefined,
           tab: undefined,
           page: undefined,
-          loc:
-            input.locationCode === DEFAULT_LOCATION_CODE
-              ? undefined
-              : input.locationCode,
+          loc: input.locationCode,
           size: undefined,
         }),
         replace: true,
@@ -458,49 +504,27 @@ export function DomainOverviewPage({
   const searchTabs = useSearchTabNavigation({
     storageKey: `domain:${projectId}`,
     urlInput: urlTabInput,
-    getLabel: useCallback((input) => {
-      if (input.type !== "domain") return "";
-      const locationSuffix =
-        input.locationCode === DEFAULT_LOCATION_CODE
-          ? ""
-          : ` ${LOCATIONS[input.locationCode] ?? input.locationCode}`;
-      return `${input.domain}${locationSuffix}`;
-    }, []),
+    getLabel: useCallback(
+      (input) => {
+        if (input.type !== "domain") return "";
+        const locationSuffix =
+          input.locationCode == null ||
+          input.locationCode === routeState.defaultLocationCode
+            ? ""
+            : ` ${LOCATIONS[input.locationCode] ?? input.locationCode}`;
+        return `${input.domain}${locationSuffix}`;
+      },
+      [routeState.defaultLocationCode],
+    ),
     navigateToInput: navigateToSearchTab,
   });
 
-  const handleSearchSubmit = useCallback(
-    (event: FormEvent) => {
-      const values = state.controlsForm.state.values;
-      const target = normalizeDomainTarget(values.domain);
-      if (!target) {
-        state.handleSearchSubmit(event);
-        return;
-      }
-
-      const nextTabInput: SearchTabInput = {
-        type: "domain",
-        domain: target,
-        subdomains: values.subdomains,
-        locationCode: values.locationCode,
-      };
-
-      if (!searchTabs.canOpenTab(nextTabInput)) {
-        event.preventDefault();
-        state.controlsForm.setErrorMap({
-          onSubmit: createFormValidationErrors({
-            fields: {
-              domain: `Close a tab to open more searches (max ${searchTabs.limit}).`,
-            },
-          }),
-        });
-        return;
-      }
-
-      state.handleSearchSubmit(event);
-    },
-    [searchTabs, state],
-  );
+  // domain_rank_overview can't be narrowed: its metrics always cover the
+  // hostname plus subdomains, so anything narrower needs a label.
+  const overviewMetricsHint =
+    state.overview && state.overview.scope !== "subdomains"
+      ? "Whole domain incl. subdomains"
+      : undefined;
 
   const tabControls = routeState.domain ? (
     <div className="flex flex-col gap-2">
@@ -542,7 +566,9 @@ export function DomainOverviewPage({
         <DomainSearchCard
           controlsForm={state.controlsForm}
           isLoading={state.isLoading}
-          onSubmit={handleSearchSubmit}
+          onSubmit={state.handleSearchSubmit}
+          onDomainChange={state.handleDomainChange}
+          onScopeChange={state.handleScopeChange}
           onSortChange={(sort) =>
             state.applySort(sort, getDefaultSortOrder(sort))
           }
@@ -568,6 +594,14 @@ export function DomainOverviewPage({
         ) : (
           <>
             {tabControls}
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="badge badge-ghost font-medium">
+                {state.overview.displayTarget}
+              </span>
+              <span className="badge badge-outline">
+                {RESEARCH_SCOPE_LABELS[state.overview.scope]}
+              </span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <StatCard
                 label="Estimated Organic Traffic"
@@ -575,6 +609,7 @@ export function DomainOverviewPage({
                   state.overview.organicTraffic,
                   state.overview.hasData,
                 )}
+                hint={overviewMetricsHint}
               />
               <StatCard
                 label="Organic Keywords"
@@ -582,21 +617,22 @@ export function DomainOverviewPage({
                   state.overview.organicKeywords,
                   state.overview.hasData,
                 )}
+                hint={overviewMetricsHint}
               />
             </div>
 
             {!state.overview.hasData ? (
               <div className="alert alert-info">
                 <span>
-                  Not enough data for this domain yet. Try another domain or
-                  include subdomains.
+                  Not enough data for this scope yet. Try another domain or a
+                  broader scope.
                 </span>
               </div>
             ) : null}
 
             <div className="border border-base-300 rounded-xl bg-base-100 overflow-hidden">
               <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 px-4 py-3 border-b border-base-300">
-                <div role="tablist" className="tabs tabs-box w-fit">
+                <div role="tablist" className="tabs tabs-border w-fit">
                   <button
                     type="button"
                     role="tab"
@@ -622,8 +658,9 @@ export function DomainOverviewPage({
                 <KeywordsTab
                   key="keywords"
                   projectId={projectId}
-                  domain={state.overview.domain}
-                  languageCode={state.languageCode}
+                  target={state.overview.displayTarget}
+                  hostname={state.overview.domain}
+                  scope={state.overview.scope}
                   routeState={routeState}
                   canSaveKeywords={state.canSaveKeywords}
                   setSearchParams={state.setSearchParams}
@@ -635,8 +672,9 @@ export function DomainOverviewPage({
                 <PagesTab
                   key="pages"
                   projectId={projectId}
-                  domain={state.overview.domain}
-                  languageCode={state.languageCode}
+                  target={state.overview.displayTarget}
+                  hostname={state.overview.domain}
+                  scope={state.overview.scope}
                   routeState={routeState}
                   setSearchParams={state.setSearchParams}
                   onSortClick={state.handleSortColumnClick}

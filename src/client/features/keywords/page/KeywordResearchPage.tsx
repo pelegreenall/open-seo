@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { AlertCircle, ArrowLeft } from "lucide-react";
 import { getErrorCode } from "@/client/lib/error-messages";
 import { BILLING_ROUTE } from "@/shared/billing";
@@ -7,21 +7,30 @@ import { useKeywordResearchController } from "@/client/features/keywords/state/u
 import type { KeywordResearchControllerInput } from "@/client/features/keywords/state/useKeywordResearchController";
 import type { KeywordControlsValues } from "@/client/features/keywords/hooks/useKeywordControlsForm";
 import { parseKeywordInput } from "@/client/features/keywords/state/keywordControllerActions";
-import { useKeywordSearchParams } from "@/client/features/keywords/state/keywordControllerInternals";
-import { DEFAULT_LOCATION_CODE } from "@/client/features/keywords/locations";
+import {
+  useKeywordSearchParams,
+  useResolvedKeywordLocation,
+} from "@/client/features/keywords/state/keywordControllerInternals";
 import type {
   KeywordSearchTabInput,
   SearchTab,
 } from "@/client/features/search-tabs/types";
 import { SearchTabStrip } from "@/client/features/search-tabs/SearchTabStrip";
-import { useSearchTabNavigation } from "@/client/features/search-tabs/useSearchTabNavigation";
+import {
+  tabInputKey,
+  useSearchTabNavigation,
+} from "@/client/features/search-tabs/useSearchTabNavigation";
 import { KeywordResearchEmptyState } from "./KeywordResearchEmptyState";
 import { KeywordResearchLoadingState } from "./KeywordResearchLoadingState";
 import { KeywordResearchResults } from "./KeywordResearchResults";
 import { KeywordResearchSearchBar } from "./KeywordResearchSearchBar";
 import type { KeywordResearchControllerState } from "./types";
 
-type Props = Omit<KeywordResearchControllerInput, "onFormSubmit">;
+type ControllerProps = Omit<KeywordResearchControllerInput, "onFormSubmit">;
+type Props = Omit<
+  ControllerProps,
+  "locationCode" | "displayedLocationCode" | "setPreferredLocationCode"
+> & { locationCode?: number };
 type KeywordSearchTab = SearchTab & { input: KeywordSearchTabInput };
 
 function isKeywordSearchTab(tab: SearchTab): tab is KeywordSearchTab {
@@ -31,6 +40,11 @@ function isKeywordSearchTab(tab: SearchTab): tab is KeywordSearchTab {
 export function KeywordResearchPage(input: Props) {
   const setSearchParams = useKeywordSearchParams();
   const projectId = input.projectId;
+  const { locationCode, displayedLocationCode, setPreferredLocationCode } =
+    useResolvedKeywordLocation({
+      projectId,
+      locationCode: input.locationCode,
+    });
 
   const navigateToKeywordInput = useCallback(
     (tabInput: KeywordSearchTabInput | null) => {
@@ -40,18 +54,17 @@ export function KeywordResearchPage(input: Props) {
           loc: undefined,
           kLimit: undefined,
           mode: undefined,
+          cs: undefined,
         });
         return;
       }
 
       setSearchParams({
         q: tabInput.keyword,
-        loc:
-          tabInput.locationCode === DEFAULT_LOCATION_CODE
-            ? undefined
-            : tabInput.locationCode,
+        loc: tabInput.locationCode,
         kLimit: tabInput.resultLimit === 150 ? undefined : tabInput.resultLimit,
         mode: tabInput.mode === "auto" ? undefined : tabInput.mode,
+        cs: tabInput.clickstream ? true : undefined,
       });
     },
     [setSearchParams],
@@ -64,14 +77,16 @@ export function KeywordResearchPage(input: Props) {
     return {
       type: "keyword",
       keyword,
-      locationCode: input.locationCode,
+      locationCode,
       resultLimit: input.resultLimit,
       mode: input.keywordMode,
+      clickstream: input.clickstream,
     };
   }, [
+    input.clickstream,
     input.keywordInput,
     input.keywordMode,
-    input.locationCode,
+    locationCode,
     input.resultLimit,
   ]);
   const searchTabs = useSearchTabNavigation({
@@ -94,7 +109,13 @@ export function KeywordResearchPage(input: Props) {
     const tab = searchTabs.tabs.find(
       (candidate) => candidate.id === searchTabs.activeTabId,
     );
-    return tab && isKeywordSearchTab(tab) ? tab : null;
+    // activeTabId syncs in an effect, so it trails urlInput by a render; the
+    // stale tab must not drive a paid query for a market the URL no longer names.
+    return tab &&
+      isKeywordSearchTab(tab) &&
+      tabInputKey(tab.input) === tabInputKey(urlInput)
+      ? tab
+      : null;
   }, [searchTabs.activeTabId, searchTabs.tabs, urlInput]);
 
   const onFormSubmit = useCallback(
@@ -108,16 +129,13 @@ export function KeywordResearchPage(input: Props) {
         locationCode: value.locationCode,
         resultLimit: value.resultLimit,
         mode: value.mode,
+        clickstream: value.clickstream,
       }));
 
-      let activeInput: KeywordSearchTabInput | null = null;
       for (const tabInput of inputs) {
-        const result = searchTabs.openTab(tabInput);
-        if (result.tab?.input.type === "keyword") {
-          activeInput = result.tab.input;
-        }
+        searchTabs.openTab(tabInput);
       }
-      if (activeInput) navigateToKeywordInput(activeInput);
+      navigateToKeywordInput(inputs.at(-1) ?? null);
     },
     [navigateToKeywordInput, searchTabs],
   );
@@ -125,61 +143,38 @@ export function KeywordResearchPage(input: Props) {
     searchTabs.setActiveTab(null);
     navigateToKeywordInput(null);
   }, [navigateToKeywordInput, searchTabs]);
-  const getOpenKeywordTabs = useCallback(
-    () =>
-      searchTabs.tabs.flatMap((tab) =>
-        tab.input.type === "keyword"
-          ? [
-              {
-                keyword: tab.input.keyword,
-                locationCode: tab.input.locationCode,
-                resultLimit: tab.input.resultLimit,
-                mode: tab.input.mode,
-              },
-            ]
-          : [],
-      ),
-    [searchTabs.tabs],
-  );
-
-  const controllerInput = useMemo<Props>(
+  const controllerInput = useMemo<ControllerProps>(
     () =>
       activeTab
         ? {
             ...input,
             keywordInput: activeTab.input.keyword,
             locationCode: activeTab.input.locationCode,
-            hasExplicitLocationCode: true,
+            displayedLocationCode:
+              activeTab.input.locationCode ?? displayedLocationCode,
+            setPreferredLocationCode,
             resultLimit: activeTab.input.resultLimit,
             keywordMode: activeTab.input.mode,
-            getOpenKeywordTabs,
-            keywordTabsLimit: searchTabs.limit,
+            clickstream: activeTab.input.clickstream,
           }
         : {
             ...input,
-            getOpenKeywordTabs,
-            keywordTabsLimit: searchTabs.limit,
+            locationCode,
+            displayedLocationCode,
+            setPreferredLocationCode,
           },
-    [activeTab, getOpenKeywordTabs, input, searchTabs.limit],
+    [
+      activeTab,
+      input,
+      displayedLocationCode,
+      locationCode,
+      setPreferredLocationCode,
+    ],
   );
   const controller = useKeywordResearchController({
     ...controllerInput,
     onFormSubmit,
   });
-  useEffect(() => {
-    controller.controlsForm.setErrorMap({ onSubmit: undefined });
-    controller.controlsForm.setFieldMeta("keyword", (meta) => ({
-      ...meta,
-      errorMap: {
-        ...meta.errorMap,
-        onSubmit: undefined,
-      },
-      errorSourceMap: {
-        ...meta.errorSourceMap,
-        onSubmit: undefined,
-      },
-    }));
-  }, [controller.controlsForm, searchTabs.tabs]);
 
   return (
     <div className="h-full px-4 py-4 md:px-6 md:py-6 pb-24 md:pb-8 overflow-auto">

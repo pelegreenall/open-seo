@@ -1,3 +1,4 @@
+import { sortBy } from "remeda";
 import { useMemo } from "react";
 import {
   createColumnHelper,
@@ -20,7 +21,7 @@ import {
 import { DifficultyBadge } from "@/client/features/domain/components/DifficultyBadge";
 import { formatNumber } from "@/client/features/keywords/utils";
 import type { KeywordResearchRow } from "@/types/keywords";
-import { EmptyFilterResults } from "./keywordResearchDesktopFilters";
+import { EmptyFilterResults } from "./keywordResearchFilters";
 
 type Props = {
   activeFilterCount: number;
@@ -111,9 +112,7 @@ export function KeywordResearchDesktopTable({
           let trendDirection: "up" | "down" | "stable" = "stable";
 
           if (trend && trend.length >= 2) {
-            const sortedTrend = trend.toSorted(
-              (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
-            );
+            const sortedTrend = sortBy(trend, (item) => item.year * 100 + item.month);
             const first = sortedTrend[0];
             const last = sortedTrend[sortedTrend.length - 1];
 

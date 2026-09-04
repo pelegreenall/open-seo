@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TAG_COLOR_KEYS } from "@/shared/tag-colors";
+import { booleanSearchParamSchema } from "@/types/schemas/domain";
 
 const savedKeywordTagSchema = z.string().trim().min(1).max(64);
 const tagColorSchema = z.enum(TAG_COLOR_KEYS);
@@ -17,60 +18,64 @@ const sortDirs = ["asc", "desc"] as const;
 export const researchKeywordsSchema = z.object({
   projectId: z.string().min(1),
   keywords: z.array(z.string().min(1)).min(1).max(200),
-  locationCode: z.number().int().positive().default(2840),
-  languageCode: z.string().min(2).max(8).default("en"),
-  resultLimit: z.number().int().positive().default(150),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
+  resultLimit: z
+    .union([
+      z.literal(10),
+      z.literal(50),
+      z.literal(100),
+      z.literal(150),
+      z.literal(300),
+      z.literal(500),
+      z.literal(700),
+      z.literal(1000),
+    ])
+    .default(150),
   mode: z
     .enum(["auto", "related", "suggestions", "ideas"])
     .optional()
     .default("auto"),
+  // Clickstream-refined volumes double the DataForSEO request cost; opt-in.
+  clickstream: z.boolean().optional().default(false),
+});
+
+export const savedKeywordMetricSchema = z.object({
+  keyword: z.string().min(1),
+  searchVolume: z.number().int().nonnegative().nullable().optional(),
+  cpc: z.number().nonnegative().nullable().optional(),
+  competition: z.number().min(0).max(1).nullable().optional(),
+  keywordDifficulty: z.number().int().min(0).max(100).nullable().optional(),
+  intent: z
+    .enum([
+      "informational",
+      "commercial",
+      "transactional",
+      "navigational",
+      "unknown",
+    ])
+    .nullable()
+    .optional(),
+  monthlySearches: z
+    .array(
+      z.object({
+        year: z.number().int().positive(),
+        month: z.number().int().min(1).max(12),
+        searchVolume: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
 });
 
 export const saveKeywordsSchema = z
   .object({
     projectId: z.string().min(1),
     keywords: z.array(z.string().min(1)).min(1).max(500),
-    locationCode: z.number().int().positive().default(2840),
-    languageCode: z.string().min(2).max(8).default("en"),
+    locationCode: z.number().int().positive().optional(),
+    languageCode: z.string().min(2).max(8).optional(),
     tags: z.array(savedKeywordTagSchema).max(20).optional(),
     tagMode: z.enum(["append", "replace"]).optional(),
-    metrics: z
-      .array(
-        z.object({
-          keyword: z.string().min(1),
-          searchVolume: z.number().int().nonnegative().nullable().optional(),
-          cpc: z.number().nonnegative().nullable().optional(),
-          competition: z.number().min(0).max(1).nullable().optional(),
-          keywordDifficulty: z
-            .number()
-            .int()
-            .min(0)
-            .max(100)
-            .nullable()
-            .optional(),
-          intent: z
-            .enum([
-              "informational",
-              "commercial",
-              "transactional",
-              "navigational",
-              "unknown",
-            ])
-            .nullable()
-            .optional(),
-          monthlySearches: z
-            .array(
-              z.object({
-                year: z.number().int().positive(),
-                month: z.number().int().min(1).max(12),
-                searchVolume: z.number().int().nonnegative(),
-              }),
-            )
-            .optional(),
-        }),
-      )
-      .max(500)
-      .optional(),
+    metrics: z.array(savedKeywordMetricSchema).max(500).optional(),
   })
   .refine(
     (value) => value.tagMode !== "replace" || (value.tags?.length ?? 0) > 0,
@@ -138,8 +143,23 @@ export const deleteSavedKeywordTagSchema = z.object({
   tagId: z.string().min(1),
 });
 
+export const refreshSavedKeywordMetricsSchema = z.object({
+  projectId: z.string().min(1),
+});
+
 export type ResearchKeywordsInput = z.infer<typeof researchKeywordsSchema>;
 export type SaveKeywordsInput = z.infer<typeof saveKeywordsSchema>;
+type ResolvedMarket = { locationCode: number; languageCode: string };
+export type ResolvedResearchKeywordsInput = Omit<
+  ResearchKeywordsInput,
+  keyof ResolvedMarket
+> &
+  ResolvedMarket;
+export type ResolvedSaveKeywordsInput = Omit<
+  SaveKeywordsInput,
+  keyof ResolvedMarket
+> &
+  ResolvedMarket;
 export type RemoveSavedKeywordsInput = z.infer<
   typeof removeSavedKeywordsSchema
 >;
@@ -156,11 +176,19 @@ export type UpdateSavedKeywordTagInput = z.infer<
 export type DeleteSavedKeywordTagInput = z.infer<
   typeof deleteSavedKeywordTagSchema
 >;
+
+export type RefreshSavedKeywordMetricsInput = z.infer<
+  typeof refreshSavedKeywordMetricsSchema
+>;
 export const serpAnalysisSchema = z.object({
   projectId: z.string().min(1),
   keyword: z.string().min(1),
-  locationCode: z.number().int().positive().default(2840),
-  languageCode: z.string().min(2).max(8).default("en"),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
+  // Only the two depths the app offers: the default top-20 snapshot, and the
+  // full 100 the SERP panel buys when a user pages past the loaded results.
+  // Each 10 of depth is another crawled Google page (~2.5 credits).
+  depth: z.union([z.literal(20), z.literal(100)]).default(20),
 });
 
 /* ------------------------------------------------------------------ */
@@ -182,6 +210,7 @@ export const keywordsSearchSchema = z.object({
   loc: z.coerce.number().int().positive().optional(),
   kLimit: z.number().int().positive().optional(),
   mode: z.enum(keywordModes).optional(),
+  cs: booleanSearchParamSchema.optional(),
   sort: z.enum(keywordSortFields).optional(),
   order: z.enum(sortDirs).optional(),
   minVol: z.string().optional(),

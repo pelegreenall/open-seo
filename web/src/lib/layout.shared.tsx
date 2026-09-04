@@ -11,12 +11,12 @@ export function baseOptions(): BaseLayoutProps {
     links: [
       {
         text: "Resources",
-        url: "/guides",
+        url: "/blogs",
         items: [
           {
-            text: "Guides",
-            description: "Founder-focused SEO articles.",
-            url: "/guides",
+            text: "Blog",
+            description: "SEO articles and guides.",
+            url: "/blogs",
           },
           {
             text: "MCP",

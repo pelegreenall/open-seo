@@ -1,4 +1,4 @@
-import { getEnvValue } from "@/server/lib/runtime-env";
+import { getOptionalEnvValue } from "@/server/lib/runtime-env";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { requireAuthenticatedContext } from "@/serverFunctions/middleware";
@@ -83,7 +83,7 @@ export const runCliChat = createServerFn({ method: "POST" })
 
     // Production Fallback: Forward prompts to Nairi API when running live
     if (!import.meta.env.DEV) {
-      const apiKey = await getEnvValue("NAIRI_API_KEY");
+      const apiKey = await getOptionalEnvValue("NAIRI_API_KEY");
       if (!apiKey) {
         return {
           success: false,

@@ -36,7 +36,13 @@ type RankCheckWorkflowStatus = {
 
 type RankCheckConfigForStart = Pick<
   RankTrackingConfig,
-  "id" | "domain" | "locationCode" | "languageCode" | "devices" | "serpDepth"
+  | "id"
+  | "domain"
+  | "locationCode"
+  | "languageCode"
+  | "locationName"
+  | "devices"
+  | "serpDepth"
 >;
 
 const ACTIVE_WORKFLOW_STATUSES = new Set<RankCheckWorkflowStatus["status"]>([
@@ -138,13 +144,14 @@ export async function beginRankCheckRun(input: {
   billingCustomer: BillingCustomerContext;
   keywordsTotal: number;
   keywordIds?: string[];
+  maxCostCredits?: number;
   trigger: "manual" | "scheduled";
   workflowStartErrorMessage: string;
 }): Promise<RankCheckTriggerResult> {
   // At most two attempts: once normally, once after clearing a stale blocker.
   for (let attempt = 0; attempt < 2; attempt++) {
     const runId = crypto.randomUUID();
-    const inserted = await RankTrackingRepository.tryCreateRun({
+    const created = await RankTrackingRepository.tryCreateRun({
       id: runId,
       configId: input.config.id,
       projectId: input.projectId,
@@ -152,7 +159,7 @@ export async function beginRankCheckRun(input: {
       isSubsetRun: (input.keywordIds?.length ?? 0) > 0,
     });
 
-    if (inserted) {
+    if (created) {
       try {
         await input.workflow.create({
           id: runId,
@@ -164,10 +171,12 @@ export async function beginRankCheckRun(input: {
             domain: input.config.domain,
             locationCode: input.config.locationCode,
             languageCode: input.config.languageCode,
+            locationName: input.config.locationName ?? undefined,
             devices: input.config.devices,
             serpDepth: input.config.serpDepth,
             trigger: input.trigger,
             keywordIds: input.keywordIds,
+            maxCostCredits: input.maxCostCredits,
           },
         });
       } catch (error) {

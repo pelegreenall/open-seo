@@ -2,6 +2,7 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { getDomainKeywordsPage } from "@/serverFunctions/domain";
 import { debugDomain } from "@/client/features/domain/domainDebug";
+import type { ResearchScope } from "@/shared/researchScope";
 import type {
   DomainFilterValues,
   DomainSortMode,
@@ -11,9 +12,8 @@ import type {
 type DomainKeywordsQueryInput = {
   projectId: string;
   domain: string;
-  includeSubdomains: boolean;
-  locationCode: number;
-  languageCode: string;
+  scope: ResearchScope;
+  locationCode: number | undefined;
   page: number;
   pageSize: number;
   sortMode: DomainSortMode;
@@ -58,9 +58,8 @@ export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
       "domain-keywords",
       input.projectId,
       input.domain,
-      input.includeSubdomains,
+      input.scope,
       input.locationCode,
-      input.languageCode,
       input.page,
       input.pageSize,
       input.sortMode,
@@ -70,8 +69,7 @@ export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
     [
       filtersPayload,
       input.domain,
-      input.includeSubdomains,
-      input.languageCode,
+      input.scope,
       input.locationCode,
       input.page,
       input.pageSize,
@@ -96,9 +94,8 @@ export function useDomainKeywordsQuery(input: DomainKeywordsQueryInput) {
         data: {
           projectId: input.projectId,
           domain: input.domain,
-          includeSubdomains: input.includeSubdomains,
+          scope: input.scope,
           locationCode: input.locationCode,
-          languageCode: input.languageCode,
           page: input.page,
           pageSize: input.pageSize,
           sortMode: input.sortMode,

@@ -1,3 +1,4 @@
+import { sortBy } from "remeda";
 import { useState } from "react";
 import {
   ArrowDownRight,
@@ -52,9 +53,7 @@ export function DesktopSerpPanel({ controller }: Props) {
   const [timeFrame, setTimeFrame] = useState<3 | 6 | 12>(12);
 
   const sortedTrend = overviewKeyword
-    ? overviewKeyword.trend.toSorted(
-        (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
-      )
+    ? sortBy(overviewKeyword.trend, (item) => item.year * 100 + item.month)
     : [];
 
   const filteredTrend = sortedTrend.slice(-timeFrame);
@@ -156,6 +155,9 @@ export function DesktopSerpPanel({ controller }: Props) {
             items={controller.serpResults}
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
+            loadingMore={controller.serpLoadingMore}
+            canLoadMore={controller.canLoadMoreSerp}
+            deepFetchFailed={controller.deepFetchFailed}
             error={controller.serpError}
             onRetry={() => void controller.serpQuery.refetch()}
             page={controller.serpPage}

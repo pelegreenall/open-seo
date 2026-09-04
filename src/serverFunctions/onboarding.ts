@@ -20,6 +20,7 @@ export const getOnboardingAnswers = createServerFn({ method: "GET" })
     const answers = await db.query.userOnboardingAnswers.findFirst({
       columns: {
         completedAt: true,
+        gscNudgeDismissedAt: true,
         interestedFeatures: true,
         workFor: true,
         clientWebsiteCount: true,
@@ -28,7 +29,7 @@ export const getOnboardingAnswers = createServerFn({ method: "GET" })
       },
       where: eq(userOnboardingAnswers.userId, context.userId),
     });
-    const hostedUser = await db.query.user.findFirst({
+    const userRecord = await db.query.user.findFirst({
       columns: {
         createdAt: true,
       },
@@ -51,7 +52,8 @@ export const getOnboardingAnswers = createServerFn({ method: "GET" })
 
     return {
       completedAt: answers?.completedAt ?? null,
-      userCreatedAt: hostedUser?.createdAt?.toISOString() ?? null,
+      gscNudgeDismissedAt: answers?.gscNudgeDismissedAt ?? null,
+      userCreatedAt: userRecord?.createdAt?.toISOString() ?? null,
       answers: {
         interestedFeatures,
         workFor: answers?.workFor ?? null,
@@ -64,7 +66,7 @@ export const getOnboardingAnswers = createServerFn({ method: "GET" })
 
 export const saveOnboardingAnswers = createServerFn({ method: "POST" })
   .middleware(requireAuthenticatedContext)
-  .inputValidator((data: unknown) => onboardingAnswersSchema.parse(data))
+  .validator(onboardingAnswersSchema)
   .handler(async ({ data, context }) => {
     const now = new Date().toISOString();
     const completedAt = data.completed ? now : undefined;
@@ -80,7 +82,12 @@ export const saveOnboardingAnswers = createServerFn({ method: "POST" })
       ...(data.mcpSetupIntent !== undefined
         ? { mcpSetupIntent: data.mcpSetupIntent }
         : {}),
-      ...(completedAt !== undefined ? { completedAt } : {}),
+      // Completing onboarding means the user passed the Search Console step, so
+      // resolve the GSC prompt — the legacy re-engagement nudge must not fire
+      // for anyone who already saw that step.
+      ...(completedAt !== undefined
+        ? { completedAt, gscNudgeDismissedAt: completedAt }
+        : {}),
       updatedAt: now,
     };
 
@@ -95,11 +102,34 @@ export const saveOnboardingAnswers = createServerFn({ method: "POST" })
         foundVia: data.foundVia,
         mcpSetupIntent: data.mcpSetupIntent,
         completedAt,
+        gscNudgeDismissedAt: completedAt,
         updatedAt: now,
       })
       .onConflictDoUpdate({
         target: userOnboardingAnswers.userId,
         set,
+      });
+
+    return { ok: true };
+  });
+
+// Records that the one-time "connect Search Console" nudge has been shown and
+// resolved (dismissed or acted on) so it never reappears for this user.
+export const dismissGscNudge = createServerFn({ method: "POST" })
+  .middleware(requireAuthenticatedContext)
+  .handler(async ({ context }) => {
+    const now = new Date().toISOString();
+    await db
+      .insert(userOnboardingAnswers)
+      .values({
+        userId: context.userId,
+        organizationId: context.organizationId,
+        gscNudgeDismissedAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: userOnboardingAnswers.userId,
+        set: { gscNudgeDismissedAt: now, updatedAt: now },
       });
 
     return { ok: true };

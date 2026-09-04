@@ -11,3 +11,4 @@ export {
 } from "./saved-keywords";
 export { clusterKeywords } from "./keywordClustering";
 
+export { refreshSavedKeywordMetrics } from "./refresh-metrics";

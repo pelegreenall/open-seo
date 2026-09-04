@@ -1,17 +1,27 @@
 import {
+  archiveProject,
   createProject,
-  deleteProject,
-  getOrCreateDefaultProject,
-  getProject,
   getProjectForOrganization,
+  getProjectWithOrganization,
+  listArchivedProjects,
   listProjects,
+  listProjectsEnsuringOne,
+  restoreProject,
+  setProjectDomain,
+  setProjectMarket,
+  updateProject,
 } from "@/server/features/projects/services/projects";
 
 export const ProjectService = {
   listProjects,
+  listProjectsEnsuringOne,
   createProject,
-  deleteProject,
-  getOrCreateDefaultProject,
-  getProject,
+  updateProject,
+  setProjectDomain,
+  setProjectMarket,
+  archiveProject,
+  restoreProject,
+  listArchivedProjects,
   getProjectForOrganization,
+  getProjectWithOrganization,
 } as const;

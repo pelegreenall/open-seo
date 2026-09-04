@@ -6,10 +6,21 @@ import { XMLParser } from "fast-xml-parser";
 import { isSameOrigin, normalizeUrl } from "./url-utils";
 
 const SITEMAP_FETCH_TIMEOUT_MS = 15_000;
+// robots.txt is checkpointed as durable Workflow step state (~1MiB cap, shared
+// with the rest of the step's return). RFC 9309 requires parsers to handle at
+// least 500 KiB and permits ignoring anything beyond it — Google does exactly
+// that — so this cap matches standard crawler behavior while keeping a
+// misbehaving server (e.g. HTML at /robots.txt) from blowing the step limit.
+const MAX_ROBOTS_TXT_BYTES = 500 * 1024;
 const MAX_SITEMAP_DEPTH = 3;
 const MAX_SITEMAP_DOCS = 300;
 const SITEMAP_CONCURRENCY = 5;
 const SITEMAP_RETRIES = 1;
+// Sitemap shards can legally reach 50 MB and SITEMAP_CONCURRENCY of them are
+// read at once, so unbounded reads can exhaust Worker memory. Oversized
+// shards are skipped whole — truncated XML would not parse anyway, and real
+// generators shard far below this.
+const MAX_SITEMAP_BYTES = 10 * 1024 * 1024;
 
 const xmlParser = new XMLParser({
   ignoreAttributes: false,
@@ -22,39 +33,39 @@ export interface RobotsResult {
 }
 
 /**
- * Fetch and parse robots.txt for a given origin.
- * Returns a helper to check if URLs are allowed + discovered sitemap URLs.
+ * Fetch the raw robots.txt body (null = missing/unreachable). Kept separate
+ * from parsing so Workflows can checkpoint the text as durable step state and
+ * re-derive the parsed result deterministically on replay.
  */
-export async function fetchRobotsTxt(origin: string): Promise<RobotsResult> {
-  const robotsUrl = `${origin}/robots.txt`;
+async function fetchRobotsTxtText(origin: string): Promise<string | null> {
   try {
-    const response = await fetch(robotsUrl, {
+    const response = await fetch(`${origin}/robots.txt`, {
       headers: { "User-Agent": "OpenSEO-Audit/1.0" },
       signal: AbortSignal.timeout(10_000),
     });
 
-    if (!response.ok) {
-      // No robots.txt = everything allowed
-      return {
-        isAllowed: () => true,
-        sitemapUrls: [],
-      };
-    }
-
-    const text = await response.text();
-    const robots = robotsParser(robotsUrl, text);
-
-    return {
-      isAllowed: (url: string) => robots.isAllowed(url) ?? true,
-      sitemapUrls: robots.getSitemaps(),
-    };
+    if (!response.ok) return null;
+    return (await response.text()).slice(0, MAX_ROBOTS_TXT_BYTES);
   } catch (error) {
     console.warn("Failed to fetch robots.txt:", error);
-    return {
-      isAllowed: () => true,
-      sitemapUrls: [],
-    };
+    return null;
   }
+}
+
+/** Deterministic: same text in, same result out. Null = everything allowed. */
+export function parseRobotsTxt(
+  origin: string,
+  text: string | null,
+): RobotsResult {
+  if (text === null) {
+    return { isAllowed: () => true, sitemapUrls: [] };
+  }
+
+  const robots = robotsParser(`${origin}/robots.txt`, text);
+  return {
+    isAllowed: (url: string) => robots.isAllowed(url) ?? true,
+    sitemapUrls: robots.getSitemaps(),
+  };
 }
 
 /**
@@ -119,6 +130,34 @@ function isTimeoutError(error: unknown): boolean {
   return "name" in error && error.name === "TimeoutError";
 }
 
+/** Read a response body up to maxBytes; null when the body exceeds it. */
+async function readBodyCapped(
+  response: Response,
+  maxBytes: number,
+): Promise<string | null> {
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const joined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    joined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(joined);
+}
+
 async function fetchSitemapDocumentWithRetry(sitemapUrl: string): Promise<{
   nestedSitemaps: string[];
   pageUrls: string[];
@@ -147,8 +186,11 @@ async function fetchSitemapDocumentWithRetry(sitemapUrl: string): Promise<{
         return { nestedSitemaps: [], pageUrls: [], timedOut: false };
       }
 
-      const body = await response.text();
-      if (!isProbablySitemapXml(response.headers.get("content-type"), body)) {
+      const body = await readBodyCapped(response, MAX_SITEMAP_BYTES);
+      if (
+        body === null ||
+        !isProbablySitemapXml(response.headers.get("content-type"), body)
+      ) {
         return { nestedSitemaps: [], pageUrls: [], timedOut: false };
       }
 
@@ -184,8 +226,9 @@ async function fetchSitemapDocumentWithRetry(sitemapUrl: string): Promise<{
 export async function discoverUrls(
   origin: string,
   maxPages = 50,
-): Promise<{ urls: string[]; robots: RobotsResult; sitemapUrls: Set<string> }> {
-  const robots = await fetchRobotsTxt(origin);
+): Promise<{ urls: string[]; robotsText: string | null }> {
+  const robotsText = await fetchRobotsTxtText(origin);
+  const robots = parseRobotsTxt(origin, robotsText);
 
   // Collect sitemap URLs: from robots.txt + default location
   const sitemapSources = new Set(robots.sitemapUrls);
@@ -262,9 +305,10 @@ export async function discoverUrls(
     );
   }
 
+  // Cap at the crawl's page budget: these are seeds, the crawl can never use
+  // more — and an uncapped list can blow the ~1MiB Workflow step-state limit.
   return {
-    urls: Array.from(allUrls),
-    robots,
-    sitemapUrls: allUrls,
+    urls: Array.from(allUrls).slice(0, maxPages),
+    robotsText,
   };
 }

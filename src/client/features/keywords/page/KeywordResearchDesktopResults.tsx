@@ -7,6 +7,7 @@ import {
   Sheet,
   SlidersHorizontal,
 } from "lucide-react";
+import { sortBy } from "remeda";
 import {
   downloadKeywordResearchCsv,
   KEYWORD_RESEARCH_HEADERS,
@@ -19,9 +20,10 @@ import {
 } from "@/client/features/keywords/components";
 import type { KeywordResearchControllerState } from "./types";
 import {
+  FilterIntentSelect,
   FilterRangeInputs,
   FilterTextInput,
-} from "./keywordResearchDesktopFilters";
+} from "./keywordResearchFilters";
 import { KeywordResearchDesktopTable } from "./KeywordResearchDesktopTable";
 import {
   KeywordResearchPagination,
@@ -292,6 +294,8 @@ function DesktopFilters({ controller }: Props) {
           maxName="maxKd"
         />
       </div>
+
+      <FilterIntentSelect form={filtersForm} />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { buildCsv, downloadCsv } from "@/client/lib/csv";
 import { exportTableToSheets } from "@/client/lib/exportToSheets";
 import { captureClientEvent } from "@/client/lib/posthog";
+import { formatLocationLabel } from "@/shared/keyword-locations";
 import type {
   RankTrackingDeviceResult,
   RankTrackingRow,
@@ -160,7 +161,7 @@ export function CpcCell({ value }: { value: number | null }) {
 }
 
 /** Numeric change for CSV export — numbers bypass the CSV formula-injection sanitizer */
-function csvChange(
+export function csvChange(
   current: number | null,
   previous: number | null,
 ): number | string {
@@ -173,10 +174,14 @@ export function buildRankTrackingExport(
   sorted: RankTrackingRow[],
   showDesktop: boolean,
   showMobile: boolean,
+  locationName?: string | null,
 ): { headers: string[]; rows: (string | number)[][] } {
   const headers = [
     "Keyword",
-    "Volume",
+    // Exports lack the table's tooltip, so name the city inline.
+    locationName
+      ? `Local volume (${formatLocationLabel(locationName, 2)})`
+      : "Volume",
     "KD",
     "CPC",
     ...(showDesktop
@@ -227,11 +232,13 @@ export function exportRankTrackingToSheets(
   sorted: RankTrackingRow[],
   showDesktop: boolean,
   showMobile: boolean,
+  locationName?: string | null,
 ) {
   const { headers, rows } = buildRankTrackingExport(
     sorted,
     showDesktop,
     showMobile,
+    locationName,
   );
   void exportTableToSheets({ headers, rows, feature: "rank_tracking" });
 }
@@ -241,6 +248,7 @@ export function exportRankTrackingCsv(
   showDesktop: boolean,
   showMobile: boolean,
   domain: string,
+  locationName?: string | null,
 ) {
   if (sorted.length === 0) {
     toast.error("No data to export");
@@ -250,6 +258,7 @@ export function exportRankTrackingCsv(
     sorted,
     showDesktop,
     showMobile,
+    locationName,
   );
   // CSV file download keeps cents-formatted CPC for human readability;
   // clipboard/Sheets export uses raw numbers (see buildRankTrackingExport).

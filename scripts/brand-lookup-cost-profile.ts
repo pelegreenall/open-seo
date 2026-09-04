@@ -1,14 +1,19 @@
 import process from "node:process";
 import {
+  fetchLlmAggregatedMetrics,
+  fetchLlmCrossAggregatedMetrics,
+  fetchLlmMentionsSearch,
+  fetchLlmTopPages,
+} from "@/server/lib/dataforseo/ai";
+import {
   buildLlmTarget,
   CHATGPT_LANGUAGE_CODE,
   CHATGPT_LOCATION_CODE,
-  fetchLlmAggregatedMetricsRaw,
-  fetchLlmMentionsSearchRaw,
-  fetchLlmTopPagesRaw,
   type LlmPlatform,
-} from "@/server/lib/dataforseoLlm";
+} from "@/server/lib/dataforseo/shared";
 import { applyBillingMarkupUsd } from "@/shared/billing";
+import { resolveCompetitorGroups } from "@/server/features/ai-search/services/shareOfVoice";
+import { parseCompetitorList } from "@/types/schemas/ai-search";
 import { loadLocalEnv, parseArgs } from "./cli-utils";
 
 loadLocalEnv();
@@ -48,8 +53,22 @@ async function main() {
   const userLocationCode = parsePositiveInteger(args.locationCode, 2840);
   const userLanguageCode = args.languageCode ?? "en";
   const repeat = parsePositiveInteger(args.repeat, 1);
+  // Optional comma-separated competitors — adds the Share of Voice
+  // cross_aggregated_metrics call per platform, mirroring the service.
+  const competitors = parseCompetitorList(args.competitors ?? "");
+  const competitorGroups = resolveCompetitorGroups(target, competitors);
 
   const llmTarget = buildLlmTarget({ type: targetType, value: target });
+  const crossGroups = [
+    { key: target, target: llmTarget },
+    ...competitorGroups.map((competitor) => {
+      const detected = competitor.detected;
+      return {
+        key: competitor.label,
+        target: buildLlmTarget({ type: detected.type, value: detected.value }),
+      };
+    }),
+  ];
   const platforms: LlmPlatform[] = ["chat_gpt", "google"];
 
   const allRuns: RunSummary[] = [];
@@ -65,7 +84,7 @@ async function main() {
       const languageCode =
         platform === "chat_gpt" ? CHATGPT_LANGUAGE_CODE : userLanguageCode;
 
-      const aggregated = await fetchLlmAggregatedMetricsRaw({
+      const aggregated = await fetchLlmAggregatedMetrics({
         target: llmTarget,
         platform,
         locationCode,
@@ -74,7 +93,7 @@ async function main() {
       });
       calls.push(toRecord(platform, "aggregated_metrics", aggregated.billing));
 
-      const topPages = await fetchLlmTopPagesRaw({
+      const topPages = await fetchLlmTopPages({
         target: llmTarget,
         platform,
         locationCode,
@@ -83,20 +102,42 @@ async function main() {
       });
       calls.push(toRecord(platform, "top_pages", topPages.billing));
 
-      const mentions = await fetchLlmMentionsSearchRaw({
+      // Prompt rows provide examples for the cited-source table.
+      const mentions = await fetchLlmMentionsSearch({
         target: llmTarget,
         platform,
         locationCode,
         languageCode,
-        limit: 25,
+        limit: 100,
       });
       calls.push(toRecord(platform, "mentions_search", mentions.billing));
+
+      if (competitorGroups.length > 0) {
+        const cross = await fetchLlmCrossAggregatedMetrics({
+          groups: crossGroups,
+          platform,
+          locationCode,
+          languageCode,
+        });
+        calls.push(
+          toRecord(platform, "cross_aggregated_metrics", cross.billing),
+        );
+      }
     }
 
     const totalRawUsd = sum(calls.map((c) => c.rawUsd));
+    const crossRawUsd = sum(
+      calls
+        .filter((c) => c.endpoint === "cross_aggregated_metrics")
+        .map((c) => c.rawUsd),
+    );
     allRuns.push({
       run: runIndex + 1,
       calls,
+      // Split out so the base "Est. $X" and the "+$Y to compare competitors"
+      // UI constants can each be checked against reality.
+      baseRawUsd: round(totalRawUsd - crossRawUsd),
+      crossRawUsd: round(crossRawUsd),
       totalRawUsd: round(totalRawUsd),
       totalBilledUsd: applyBillingMarkupUsd(totalRawUsd),
     });
@@ -113,6 +154,7 @@ async function main() {
           targetType,
           userLocationCode,
           userLanguageCode,
+          competitors: competitorGroups.map((group) => group.label),
           repeat,
         },
         runs: allRuns,
@@ -133,7 +175,6 @@ type CallRecord = {
   platform: LlmPlatform;
   endpoint: string;
   path: string;
-  resultCount: number | null;
   rawUsd: number;
   billedUsd: number;
 };
@@ -141,6 +182,8 @@ type CallRecord = {
 type RunSummary = {
   run: number;
   calls: CallRecord[];
+  baseRawUsd: number;
+  crossRawUsd: number;
   totalRawUsd: number;
   totalBilledUsd: number;
 };
@@ -148,13 +191,12 @@ type RunSummary = {
 function toRecord(
   platform: LlmPlatform,
   endpoint: string,
-  billing: { costUsd: number; path: string[]; resultCount: number | null },
+  billing: { costUsd: number; path: string[] },
 ): CallRecord {
   return {
     platform,
     endpoint,
     path: billing.path.join("/"),
-    resultCount: billing.resultCount,
     rawUsd: round(billing.costUsd),
     billedUsd: applyBillingMarkupUsd(billing.costUsd),
   };
@@ -185,7 +227,7 @@ function round(value: number): number {
 function printUsageAndExit(message: string): never {
   console.error(message);
   console.error(
-    "Usage: pnpm billing:brand-lookup --target=example.com --confirmLive=true [--targetType=domain|keyword] [--locationCode=2840] [--languageCode=en] [--repeat=1] [--allowCi=true]",
+    "Usage: pnpm billing:brand-lookup --target=example.com --confirmLive=true [--targetType=domain|keyword] [--competitors=a.com,b.com] [--locationCode=2840] [--languageCode=en] [--repeat=1] [--allowCi=true]",
   );
   process.exit(1);
 }

@@ -1,9 +1,5 @@
 import type { BacklinksTab } from "@/types/schemas/backlinks";
-import type {
-  BacklinksOverviewData,
-  BacklinksRow,
-  GroupedBacklinkDomain,
-} from "./backlinksPageTypes";
+import type { BacklinksOverviewData } from "./backlinksPageTypes";
 
 export const TAB_DESCRIPTIONS: Record<BacklinksTab, string> = {
   backlinks:
@@ -109,70 +105,6 @@ export function formatRelativeTimestamp(value: string) {
   });
 }
 
-export function groupBacklinksByDomain(
-  rows: BacklinksRow[],
-): GroupedBacklinkDomain[] {
-  const groups = new Map<string, BacklinksRow[]>();
-
-  for (const row of rows) {
-    const key = row.domainFrom?.replace(/^www\./, "") ?? "unknown";
-    const existing = groups.get(key);
-    if (existing) {
-      existing.push(row);
-    } else {
-      groups.set(key, [row]);
-    }
-  }
-
-  return Array.from(groups.entries()).map(([domain, children]) => ({
-    domain,
-    domainAuthority: maxNullable(children.map((r) => r.domainFromRank)),
-    spamScore: maxNullable(children.map((r) => r.spamScore)),
-    firstSeen: minDateString(children.map((r) => r.firstSeen)),
-    backlinkCount: children.reduce(
-      (total, child) => total + getBacklinkCount(child),
-      0,
-    ),
-    targetCount: new Set(children.map((r) => r.urlTo).filter(Boolean)).size,
-    lostCount: children.filter((r) => r.isLost).length,
-    brokenCount: children.filter((r) => r.isBroken).length,
-    nofollowCount: children.filter((r) => r.isDofollow === false).length,
-    subRows: children.map((child) => ({
-      domain: child.domainFrom?.replace(/^www\./, "") ?? "unknown",
-      domainAuthority: child.domainFromRank,
-      spamScore: child.spamScore,
-      firstSeen: child.firstSeen,
-      backlinkCount: 1,
-      targetCount: 1,
-      lostCount: child.isLost ? 1 : 0,
-      brokenCount: child.isBroken ? 1 : 0,
-      nofollowCount: child.isDofollow === false ? 1 : 0,
-      subRows: [],
-      _backlink: child,
-    })),
-  }));
-}
-
-function getBacklinkCount(row: BacklinksRow) {
-  return row.linksCount != null && row.linksCount > 0 ? row.linksCount : 1;
-}
-
-function maxNullable(values: (number | null)[]): number | null {
-  let result: number | null = null;
-  for (const v of values) {
-    if (v != null && (result == null || v > result)) result = v;
-  }
-  return result;
-}
-
-function minDateString(values: (string | null)[]): string | null {
-  let result: string | null = null;
-  for (const v of values) {
-    if (v && (result == null || v < result)) result = v;
-  }
-  return result;
-}
-
 export function extractUrlPath(url: string) {
   try {
     const parsed = new URL(url);
@@ -182,8 +114,15 @@ export function extractUrlPath(url: string) {
   }
 }
 
+const ELLIPSIS = "...";
+
 export function truncateMiddle(value: string, maxLength: number) {
   if (value.length <= maxLength) return value;
-  const sideLength = Math.floor((maxLength - 1) / 2);
-  return `${value.slice(0, sideLength)}...${value.slice(-sideLength)}`;
+  if (maxLength <= ELLIPSIS.length)
+    return value.slice(0, Math.max(maxLength, 0));
+  const sideLength = Math.floor((maxLength - ELLIPSIS.length) / 2);
+  if (sideLength <= 0) {
+    return `${value.slice(0, maxLength - ELLIPSIS.length)}${ELLIPSIS}`;
+  }
+  return `${value.slice(0, sideLength)}${ELLIPSIS}${value.slice(-sideLength)}`;
 }

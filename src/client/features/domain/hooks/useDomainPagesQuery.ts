@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getDomainPagesPage } from "@/serverFunctions/domain";
 import { debugDomain } from "@/client/features/domain/domainDebug";
 import { toPageSortMode } from "@/client/features/domain/utils";
+import type { ResearchScope } from "@/shared/researchScope";
 import type {
   DomainSortMode,
   PagesFilterValues,
@@ -12,9 +13,8 @@ import type {
 type DomainPagesQueryInput = {
   projectId: string;
   domain: string;
-  includeSubdomains: boolean;
-  locationCode: number;
-  languageCode: string;
+  scope: ResearchScope;
+  locationCode: number | undefined;
   page: number;
   pageSize: number;
   sortMode: DomainSortMode;
@@ -30,9 +30,8 @@ export function useDomainPagesQuery(input: DomainPagesQueryInput) {
       "domain-pages",
       input.projectId,
       input.domain,
-      input.includeSubdomains,
+      input.scope,
       input.locationCode,
-      input.languageCode,
       input.page,
       input.pageSize,
       pageSortMode,
@@ -42,8 +41,7 @@ export function useDomainPagesQuery(input: DomainPagesQueryInput) {
     [
       input.appliedFilters,
       input.domain,
-      input.includeSubdomains,
-      input.languageCode,
+      input.scope,
       input.locationCode,
       input.page,
       input.pageSize,
@@ -68,9 +66,8 @@ export function useDomainPagesQuery(input: DomainPagesQueryInput) {
         data: {
           projectId: input.projectId,
           domain: input.domain,
-          includeSubdomains: input.includeSubdomains,
+          scope: input.scope,
           locationCode: input.locationCode,
-          languageCode: input.languageCode,
           page: input.page,
           pageSize: input.pageSize,
           sortMode: pageSortMode,

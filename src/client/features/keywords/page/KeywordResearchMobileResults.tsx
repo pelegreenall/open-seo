@@ -15,6 +15,7 @@ import {
 import { exportTableToSheets } from "@/client/lib/exportToSheets";
 import { captureClientEvent } from "@/client/lib/posthog";
 import { SerpAnalysisCard } from "@/client/features/keywords/components";
+import { FilterIntentSelect } from "./keywordResearchFilters";
 import { KeywordResearchDesktopTable } from "./KeywordResearchDesktopTable";
 import {
   KeywordResearchPagination,
@@ -67,8 +68,11 @@ export function KeywordResearchMobileResults({ controller }: Props) {
             items={controller.serpResults}
             keyword={controller.activeSerpKeyword}
             loading={controller.serpLoading}
+            loadingMore={controller.serpLoadingMore}
+            canLoadMore={controller.canLoadMoreSerp}
             error={controller.serpError}
-            onRetry={() => void controller.serpQuery.refetch()}
+            onRetry={controller.retrySerp}
+            deepFetchFailed={controller.deepFetchFailed}
             page={controller.serpPage}
             pageSize={controller.SERP_PAGE_SIZE}
             onPageChange={controller.setSerpPage}
@@ -322,6 +326,8 @@ function MobileFilters({ controller }: Props) {
           placeholder="Max difficulty"
         />
       </div>
+
+      <FilterIntentSelect form={filtersForm} />
     </div>
   );
 }

@@ -1,7 +1,10 @@
 import { env } from "cloudflare:workers";
+import {
+  getContactNameParts,
+  updateLoopsContact,
+} from "@/server/email/loops-client";
 
 const LOOPS_TRANSACTIONAL_URL = "https://app.loops.so/api/v1/transactional";
-const LOOPS_CONTACT_UPDATE_URL = "https://app.loops.so/api/v1/contacts/update";
 
 function getOptionalEnv(name: string) {
   const value: unknown = Reflect.get(env, name);
@@ -55,6 +58,7 @@ async function sendLoopsTransactionalEmail({
       addToAudience: false,
       dataVariables,
     }),
+    signal: AbortSignal.timeout(10_000),
   });
 
   if (response.ok) {
@@ -72,22 +76,6 @@ async function sendLoopsTransactionalEmail({
   throw new Error(
     `Failed to send Loops transactional email (${response.status})`,
   );
-}
-
-function getContactNameParts(name: string | null | undefined) {
-  const trimmedName = name?.trim();
-
-  if (!trimmedName) {
-    return {};
-  }
-
-  const [firstName, ...lastNameParts] = trimmedName.split(/\s+/);
-  const lastName = lastNameParts.join(" ");
-
-  return {
-    firstName,
-    ...(lastName ? { lastName } : {}),
-  };
 }
 
 export async function upsertHostedSignupContact({
@@ -108,34 +96,17 @@ export async function upsertHostedSignupContact({
     return;
   }
 
-  const response = await fetch(LOOPS_CONTACT_UPDATE_URL, {
-    method: "PUT",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
+  await updateLoopsContact({
+    apiKey,
+    payload: {
       email,
       userId,
       source: "openseo-signup",
       userGroup: "app-user",
       ...getContactNameParts(name),
-    }),
+    },
+    logContext: { action: "signup-contact-sync" },
   });
-
-  if (response.ok) {
-    return;
-  }
-
-  const errorPayload = await response.json().catch(() => null);
-  console.error("Loops signup contact sync error:", {
-    status: response.status,
-    email,
-    userId,
-    errorPayload,
-  });
-
-  throw new Error(`Failed to sync Loops signup contact (${response.status})`);
 }
 
 export async function sendHostedVerificationEmail({
@@ -153,6 +124,37 @@ export async function sendHostedVerificationEmail({
     dataVariables: {
       appName: "OpenSEO",
       confirmationUrl,
+    },
+  });
+}
+
+export async function sendHostedInvitationEmail({
+  email,
+  inviteUrl,
+  organizationName,
+  inviterName,
+  inviterEmail,
+}: {
+  email: string;
+  inviteUrl: string;
+  organizationName: string;
+  inviterName: string;
+  inviterEmail: string;
+}) {
+  // Not part of getHostedAuthEmailConfig(): that trio gates hasHostedAuthConfig
+  // and adding a new required var there would brick existing deployments.
+  const apiKey = getRequiredEnv("LOOPS_API_KEY");
+  const templateId = getRequiredEnv("LOOPS_TRANSACTIONAL_INVITATION_ID");
+  await sendLoopsTransactionalEmail({
+    apiKey,
+    email,
+    transactionalId: templateId,
+    dataVariables: {
+      appName: "OpenSEO",
+      inviteUrl,
+      organizationName,
+      inviterName,
+      inviterEmail,
     },
   });
 }

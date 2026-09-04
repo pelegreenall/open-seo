@@ -1,3 +1,4 @@
+import { sortBy } from "remeda";
 import type { KeywordResearchRow } from "@/types/keywords";
 import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
 import { formatNumber, scoreTierClass } from "../utils";
@@ -100,9 +101,7 @@ export function KeywordRow({
           let trendDirection: "up" | "down" | "stable" = "stable";
 
           if (row.trend && row.trend.length >= 2) {
-            const sortedTrend = row.trend.toSorted(
-              (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
-            );
+            const sortedTrend = sortBy(row.trend, (item) => item.year * 100 + item.month);
             const first = sortedTrend[0];
             const last = sortedTrend[sortedTrend.length - 1];
 
@@ -212,9 +211,7 @@ export function KeywordCard({
               let trendDirection: "up" | "down" | "stable" = "stable";
 
               if (row.trend && row.trend.length >= 2) {
-                const sortedTrend = row.trend.toSorted(
-                  (a, b) => a.year * 100 + a.month - (b.year * 100 + b.month),
-                );
+                const sortedTrend = sortBy(row.trend, (item) => item.year * 100 + item.month);
                 const first = sortedTrend[0];
                 const last = sortedTrend[sortedTrend.length - 1];
 

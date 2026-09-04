@@ -1,36 +1,81 @@
-import { createFileRoute, Link, Outlet } from "@tanstack/react-router";
-import { useState } from "react";
+import {
+  createFileRoute,
+  Link,
+  Outlet,
+  useLocation,
+} from "@tanstack/react-router";
+import { useEffect, useState } from "react";
+import { NewsletterSignup } from "@/components/newsletter-signup";
 import { SiteFooter } from "@/components/site-footer";
 import { featureGroups } from "@/lib/feature-pages";
 
-const githubStarCount = "2.1k";
+const GITHUB_REPO = "every-app/open-seo";
+// Used if GitHub is unreachable at build time so the header never renders empty.
+const FALLBACK_STAR_COUNT = "2.1k";
 
-const mobileNavItems = [
-  {
-    label: "Product",
-    links: [
-      { label: "Features", href: "/features" },
-      { label: "Pricing", href: "/pricing" },
-    ],
-  },
-  {
-    label: "Resources",
-    links: [
-      { label: "Guides", href: "/guides" },
-      { label: "MCP Setup", href: "/docs/mcp" },
-      { label: "Skills", href: "/docs/skills" },
-    ],
-  },
-  {
-    label: "Community",
-    links: [
-      {
-        label: `GitHub ${githubStarCount}`,
-        href: "https://github.com/every-app/open-seo",
+// Round to the nearest hundred and render in thousands, e.g. 3140 -> "3.1k".
+function formatStarCount(count: number): string {
+  if (count < 1000) return String(count);
+  return `${(Math.round(count / 100) / 10).toString()}k`;
+}
+
+async function fetchGithubStarCount(): Promise<string> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}`, {
+      headers: {
+        Accept: "application/vnd.github+json",
+        // GitHub rejects requests without a User-Agent.
+        "User-Agent": "openseo-landing",
       },
-    ],
-  },
-];
+    });
+    if (!res.ok) return FALLBACK_STAR_COUNT;
+    const data = (await res.json()) as { stargazers_count?: number };
+    return typeof data.stargazers_count === "number"
+      ? formatStarCount(data.stargazers_count)
+      : FALLBACK_STAR_COUNT;
+  } catch {
+    return FALLBACK_STAR_COUNT;
+  }
+}
+
+// Memoized for the duration of a build so prerendering every marketing page
+// only hits GitHub once instead of once per page.
+let starCountPromise: Promise<string> | null = null;
+function loadGithubStarCount(): Promise<string> {
+  starCountPromise ??= fetchGithubStarCount();
+  return starCountPromise;
+}
+
+function getMobileNavItems(githubStarCount: string) {
+  return [
+    {
+      label: "Product",
+      links: [
+        { label: "Features", href: "/features" },
+        { label: "Pricing", href: "/pricing" },
+      ],
+    },
+    {
+      label: "Resources",
+      links: [
+        { label: "MCP Setup", href: "/docs/mcp" },
+        { label: "Skills", href: "/docs/skills" },
+        { label: "Strategy Library", href: "/library" },
+        { label: "Blog", href: "/blogs" },
+        { label: "Docs", href: "/docs" },
+      ],
+    },
+    {
+      label: "Community",
+      links: [
+        {
+          label: `GitHub ${githubStarCount}`,
+          href: "https://github.com/every-app/open-seo",
+        },
+      ],
+    },
+  ];
+}
 
 function GitHubIcon({ size = 18 }: { size?: number }) {
   return (
@@ -78,22 +123,44 @@ function CloseIcon({ size = 28 }: { size?: number }) {
 }
 
 export const Route = createFileRoute("/_marketing")({
+  // Runs at prerender/SSR time, so the count is baked into the static HTML that
+  // Cloudflare serves from the edge — no per-viewer request for it.
+  loader: async () => ({ githubStarCount: await loadGithubStarCount() }),
+  // The value is fixed per build; never refetch it on client navigation.
+  staleTime: Infinity,
   component: MarketingLayout,
 });
 
 function MarketingLayout() {
+  const { githubStarCount } = Route.useLoaderData();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { pathname } = useLocation();
+
+  const mobileNavItems = getMobileNavItems(githubStarCount);
+  // The home route owns the full viewport width (and its own footer/CTA band);
+  // every other marketing page gets the shared marketing canvas and footer.
+  const isHome = pathname === "/";
+
+  // On the landing route, paint html/body cream so the area behind the
+  // floating nav and any overscroll matches the landing canvas.
+  useEffect(() => {
+    if (!isHome) return;
+    const root = document.documentElement;
+    const prevRoot = root.style.backgroundColor;
+    const prevBody = document.body.style.backgroundColor;
+    root.style.backgroundColor = "#f5f1ec";
+    document.body.style.backgroundColor = "#f5f1ec";
+    return () => {
+      root.style.backgroundColor = prevRoot;
+      document.body.style.backgroundColor = prevBody;
+    };
+  }, [isHome]);
 
   return (
-    <main
-      className="bg-white text-neutral-900 min-h-screen"
-      style={{
-        fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      }}
-    >
-      <div className="mx-auto w-full max-w-6xl px-4 pt-6 sm:px-6 md:pt-8">
+    <main className="fd-light min-h-screen bg-[var(--color-surface)] text-[var(--color-brand)]">
+      <div className="relative z-50 mx-auto w-full max-w-6xl px-4 pt-6 sm:px-6 md:pt-8">
         <div className="relative mx-auto max-w-5xl">
-          <nav className="grid min-h-14 grid-cols-[1fr_auto] items-center gap-3 rounded-full border border-neutral-200 bg-white/95 px-4 py-2.5 shadow-sm shadow-neutral-900/5 md:grid-cols-[1fr_auto_1fr] md:px-5">
+          <nav className="grid min-h-14 grid-cols-[1fr_auto] items-center gap-3 rounded-full border border-[var(--color-border-subtle)] bg-white/90 px-4 py-2.5 shadow-sm shadow-neutral-900/5 backdrop-blur md:grid-cols-[1fr_auto_1fr] md:px-5">
             <Link
               to="/"
               className="text-sm font-semibold hover:opacity-80 transition-opacity"
@@ -118,7 +185,7 @@ function MarketingLayout() {
                 aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
                 aria-expanded={mobileMenuOpen}
                 onClick={() => setMobileMenuOpen((open) => !open)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-900 transition-colors hover:bg-neutral-100 md:hidden"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-neutral-900 transition-colors hover:bg-[#f5f1ec] md:hidden"
               >
                 {mobileMenuOpen ? <CloseIcon /> : <MenuIcon />}
               </button>
@@ -135,7 +202,7 @@ function MarketingLayout() {
               </a>
               <a
                 href="https://app.openseo.so/sign-in"
-                className="hidden h-9 items-center rounded-full border border-neutral-300 px-4 text-sm font-medium text-neutral-900 transition-colors hover:border-neutral-900 md:inline-flex"
+                className="hidden h-9 items-center rounded-full border border-[var(--color-border-subtle)] px-4 text-sm font-medium text-neutral-900 transition-colors hover:border-neutral-900 md:inline-flex"
               >
                 Sign in
               </a>
@@ -143,7 +210,7 @@ function MarketingLayout() {
           </nav>
 
           {mobileMenuOpen ? (
-            <div className="absolute left-0 right-0 top-full z-30 mt-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-xl shadow-neutral-900/10 md:hidden">
+            <div className="absolute left-0 right-0 top-full z-30 mt-3 rounded-2xl border border-[var(--color-border-subtle)] bg-white p-3 shadow-xl shadow-neutral-900/10 md:hidden">
               <div className="grid grid-cols-2 gap-2">
                 <a
                   href="https://app.openseo.so/sign-in"
@@ -155,7 +222,7 @@ function MarketingLayout() {
                 <a
                   href="https://app.openseo.so/sign-in"
                   onClick={() => setMobileMenuOpen(false)}
-                  className="flex h-11 items-center justify-center rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                  className="flex h-11 items-center justify-center rounded-xl border border-[var(--color-border-subtle)] px-3 text-sm font-semibold text-neutral-800 transition-colors hover:border-neutral-900 hover:bg-[#f5f1ec]"
                 >
                   Sign in
                 </a>
@@ -187,21 +254,20 @@ function MarketingLayout() {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto px-6 py-16 md:py-24">
+      {isHome ? (
         <Outlet />
-        <MarketingFooter />
-      </div>
+      ) : (
+        <div className="mx-auto max-w-5xl px-6 py-16 md:py-24">
+          <Outlet />
+          <MarketingFooter />
+        </div>
+      )}
     </main>
   );
 }
 
 function ResourcesDropdown() {
   const resources = [
-    {
-      label: "Guides",
-      href: "/guides",
-      description: "Founder-focused SEO articles.",
-    },
     {
       label: "MCP",
       href: "/docs/mcp",
@@ -212,29 +278,44 @@ function ResourcesDropdown() {
       href: "/docs/skills",
       description: "Focused OpenSEO workflows.",
     },
+    {
+      label: "Strategy Library",
+      href: "/library",
+      description: "Practical SEO strategies grouped by topic.",
+    },
+    {
+      label: "Blog",
+      href: "/blogs",
+      description: "SEO articles and guides.",
+    },
+    {
+      label: "Docs",
+      href: "/docs",
+      description: "Setup, MCP, skills, and self-hosting guides.",
+    },
   ];
 
   return (
-    <div className="relative group">
+    <div className="group relative">
       <a
-        href="/guides"
+        href="/blogs"
         className="text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:hidden"
       >
         Resources
       </a>
       <button
         type="button"
-        className="hidden text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:inline-flex"
+        className="hidden h-10 items-center text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:inline-flex"
       >
         Resources
       </button>
-      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-[260px] -translate-x-1/2 pt-4 opacity-0 transition md:block group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-        <div className="rounded-lg border border-neutral-200 bg-white p-3 shadow-xl shadow-neutral-900/10">
+      <div className="pointer-events-none absolute left-1/2 top-[calc(100%-2px)] z-20 hidden w-[280px] -translate-x-1/2 pt-2 opacity-0 transition md:block group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <div className="rounded-lg border border-[var(--color-border-subtle)] bg-white p-3 shadow-xl shadow-neutral-900/10">
           {resources.map((resource) => (
             <a
               key={resource.href}
               href={resource.href}
-              className="block rounded-md px-3 py-2.5 transition-colors hover:bg-neutral-50"
+              className="block rounded-md px-3 py-2.5 transition-colors hover:bg-[#f5f1ec]"
             >
               <span className="block text-sm font-semibold text-neutral-900">
                 {resource.label}
@@ -252,7 +333,7 @@ function ResourcesDropdown() {
 
 function FeatureDropdown() {
   return (
-    <div className="relative group">
+    <div className="group relative">
       <Link
         to="/features"
         className="text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:hidden"
@@ -261,12 +342,12 @@ function FeatureDropdown() {
       </Link>
       <button
         type="button"
-        className="hidden text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:inline-flex"
+        className="hidden h-10 items-center text-sm font-semibold text-neutral-600 transition-colors hover:text-neutral-900 md:inline-flex"
       >
         Features
       </button>
-      <div className="pointer-events-none absolute left-1/2 top-full z-20 hidden w-[560px] -translate-x-1/2 pt-4 opacity-0 transition md:block group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
-        <div className="rounded-lg border border-neutral-200 bg-white p-5 shadow-xl shadow-neutral-900/10">
+      <div className="pointer-events-none absolute left-1/2 top-[calc(100%-2px)] z-20 hidden w-[560px] -translate-x-1/2 pt-2 opacity-0 transition md:block group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+        <div className="rounded-lg border border-[var(--color-border-subtle)] bg-white p-5 shadow-xl shadow-neutral-900/10">
           <div className="grid grid-cols-2 gap-x-8 gap-y-6">
             {featureGroups.map((group) => (
               <div key={group.label}>
@@ -278,7 +359,7 @@ function FeatureDropdown() {
                     <a
                       key={page.slug}
                       href={`/features/${page.slug}`}
-                      className="block rounded-md px-2 py-1.5 transition-colors hover:bg-neutral-50"
+                      className="block rounded-md px-2 py-1.5 transition-colors hover:bg-[#f5f1ec]"
                     >
                       <span className="block text-sm font-semibold text-neutral-900">
                         {page.eyebrow}
@@ -298,7 +379,7 @@ function FeatureDropdown() {
               <div className="mt-3 space-y-2">
                 <a
                   href="/features/mcp"
-                  className="block rounded-md p-2 transition-colors hover:bg-neutral-50"
+                  className="block rounded-md p-2 transition-colors hover:bg-[#f5f1ec]"
                 >
                   <span className="text-sm font-semibold text-neutral-900">
                     OpenSEO MCP
@@ -308,8 +389,19 @@ function FeatureDropdown() {
                   </span>
                 </a>
                 <a
+                  href="/google-search-console-mcp"
+                  className="block rounded-md p-2 transition-colors hover:bg-[#f5f1ec]"
+                >
+                  <span className="text-sm font-semibold text-neutral-900">
+                    Search Console MCP
+                  </span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-neutral-600">
+                    Search Console data for agents.
+                  </span>
+                </a>
+                <a
                   href="/features"
-                  className="block rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-sm font-medium text-neutral-900 transition-colors hover:border-neutral-900"
+                  className="block rounded-md border border-[var(--color-border-subtle)] bg-[#f5f1ec] px-2 py-1.5 text-sm font-medium text-neutral-900 transition-colors hover:border-neutral-900"
                 >
                   View all features <span aria-hidden="true">&rarr;</span>
                 </a>
@@ -322,49 +414,11 @@ function FeatureDropdown() {
   );
 }
 
-function useNewsletter() {
-  const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<
-    "idle" | "loading" | "success" | "error"
-  >("idle");
-  const [errorMessage, setErrorMessage] = useState("");
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setStatus("loading");
-    setErrorMessage("");
-    try {
-      const res = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(
-          (data as { error?: string }).error || "Something went wrong",
-        );
-      }
-      setStatus("success");
-      setEmail("");
-    } catch (err) {
-      setStatus("error");
-      setErrorMessage(
-        err instanceof Error ? err.message : "Something went wrong",
-      );
-    }
-  };
-
-  return { email, setEmail, status, errorMessage, handleSubmit };
-}
-
 function MarketingFooter() {
-  const nl = useNewsletter();
-
   return (
     <>
       {/* Newsletter */}
-      <div className="mt-12 pt-8 border-t border-neutral-200">
+      <div className="mt-16 border-t border-[var(--color-border-subtle)] pt-8">
         <p className="text-sm font-semibold text-neutral-900">
           Stay in the loop
         </p>
@@ -372,42 +426,13 @@ function MarketingFooter() {
           Product updates, new features, and the occasional behind-the-scenes.
         </p>
         <div className="mt-3">
-          {nl.status === "success" ? (
-            <p className="text-sm text-neutral-900">You&apos;re on the list.</p>
-          ) : (
-            <form onSubmit={nl.handleSubmit} autoComplete="on">
-              <div className="flex gap-2">
-                <input
-                  id="newsletter-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  value={nl.email}
-                  onChange={(e) => nl.setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  className="flex-1 min-w-0 h-10 px-3 text-sm border border-neutral-300 rounded-md bg-white placeholder:text-neutral-500 focus:outline-none focus:ring-1 focus:ring-neutral-900 transition-all"
-                  disabled={nl.status === "loading"}
-                />
-                <button
-                  type="submit"
-                  disabled={nl.status === "loading"}
-                  className="h-10 px-5 text-sm font-medium bg-neutral-900 text-white rounded-md hover:bg-neutral-800 transition-colors disabled:opacity-50 shrink-0"
-                >
-                  {nl.status === "loading" ? "..." : "Subscribe"}
-                </button>
-              </div>
-              {nl.status === "error" && (
-                <p className="text-red-600 text-xs mt-2">{nl.errorMessage}</p>
-              )}
-            </form>
-          )}
+          <NewsletterSignup />
         </div>
       </div>
 
       {/* Footer */}
       <div className="mt-8">
-        <SiteFooter className="text-xs text-neutral-600 [&_a]:hover:text-neutral-900 [&_a]:transition-colors" />
+        <SiteFooter className="text-xs text-neutral-600 [&_a]:transition-colors [&_a]:hover:text-neutral-900" />
       </div>
     </>
   );

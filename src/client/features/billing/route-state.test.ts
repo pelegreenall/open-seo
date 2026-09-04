@@ -46,36 +46,78 @@ describe("getBillingRouteState", () => {
 });
 
 describe("getSubscribeRouteState", () => {
+  // hasManagedAccess is true for essentially every hosted customer: the free
+  // plan is the Autumn default and grants managed_service_access too.
+  const base = {
+    hasSession: true,
+    isCustomerLoading: false,
+    isCustomerError: false,
+    hasManagedAccess: true,
+    planStatus: "free" as const,
+    isUpgradeFlow: false,
+    checkoutCompleted: false,
+    finalizingTimedOut: false,
+  };
+
   it("shows an error state on billing lookup failures", () => {
-    expect(
-      getSubscribeRouteState({
-        hasSession: true,
-        isCustomerLoading: false,
-        isCustomerError: true,
-        planStatus: "free",
-      }),
-    ).toBe("error");
+    expect(getSubscribeRouteState({ ...base, isCustomerError: true })).toBe(
+      "error",
+    );
   });
 
-  it("redirects paying customers away from onboarding", () => {
+  it("keeps the page blank while billing data is still loading", () => {
+    expect(getSubscribeRouteState({ ...base, isCustomerLoading: true })).toBe(
+      "loading",
+    );
+  });
+
+  it("redirects paying customers into the app", () => {
+    expect(getSubscribeRouteState({ ...base, planStatus: "paid" })).toBe(
+      "redirectToApp",
+    );
+  });
+
+  it("redirects free-plan users into the app outside the upgrade flow", () => {
+    expect(getSubscribeRouteState(base)).toBe("redirectToApp");
+  });
+
+  it("shows the paywall to free-plan users in the upgrade flow", () => {
+    expect(getSubscribeRouteState({ ...base, isUpgradeFlow: true })).toBe(
+      "showPaywall",
+    );
+  });
+
+  it("finalizes after checkout even though managed access would redirect", () => {
+    // Regression: managed access is granted by the free plan, so checking it
+    // before checkoutCompleted sent just-paid users into the app as "free".
+    expect(getSubscribeRouteState({ ...base, checkoutCompleted: true })).toBe(
+      "finalizing",
+    );
+  });
+
+  it("lets the user through once the finalizing window runs out", () => {
     expect(
       getSubscribeRouteState({
-        hasSession: true,
-        isCustomerLoading: false,
-        isCustomerError: false,
-        planStatus: "paid",
+        ...base,
+        checkoutCompleted: true,
+        finalizingTimedOut: true,
+      }),
+    ).toBe("redirectToApp");
+
+    // Even a poll error must not extend the wait past the deadline.
+    expect(
+      getSubscribeRouteState({
+        ...base,
+        checkoutCompleted: true,
+        finalizingTimedOut: true,
+        isCustomerError: true,
       }),
     ).toBe("redirectToApp");
   });
 
-  it("shows welcome page for free plan users", () => {
-    expect(
-      getSubscribeRouteState({
-        hasSession: true,
-        isCustomerLoading: false,
-        isCustomerError: false,
-        planStatus: "free",
-      }),
-    ).toBe("showWelcome");
+  it("shows the paywall to users without managed access", () => {
+    expect(getSubscribeRouteState({ ...base, hasManagedAccess: false })).toBe(
+      "showPaywall",
+    );
   });
 });

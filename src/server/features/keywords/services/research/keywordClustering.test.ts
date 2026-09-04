@@ -8,8 +8,8 @@ vi.mock("./research", () => ({
   research: (...args: any[]) => mockResearch(...args),
 }));
 
-vi.mock("@/server/lib/dataforseoLlm", () => ({
-  fetchLlmResponseRaw: (...args: any[]) => mockFetchLlmResponseRaw(...args),
+vi.mock("@/server/lib/dataforseo/ai", () => ({
+  fetchLlmResponse: (...args: any[]) => mockFetchLlmResponseRaw(...args),
 }));
 
 const mockBillingContext = {

@@ -1,33 +1,20 @@
 import * as React from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Menu } from "lucide-react";
 import {
-  ChevronsUpDown,
-  CircleHelp,
-  CreditCard,
-  Menu,
-  Settings,
-  Terminal,
-  User,
-  Sparkles,
-} from "lucide-react";
-import { Sidebar } from "@/client/components/Sidebar";
-import { Logo } from "@/client/components/Logo";
-import { ChatSidebar } from "@/client/features/ai-chat/ChatSidebar";
-import {
-  AppContent,
   MissingSeoSetupModal,
+  MobileSidebarDrawer,
   SeoApiStatusBanners,
 } from "@/client/layout/AppShellParts";
-import { getProjectNavGroups } from "@/client/navigation/items";
-import { signOutAndRedirect, useSession } from "@/lib/auth-client";
-import { isHostedClientAuthMode } from "@/lib/auth-mode";
+import { GscReEngagementModal } from "@/client/features/gsc/GscReEngagementModal";
+import { Sidebar } from "@/client/components/Sidebar";
 import { BILLING_ROUTE } from "@/shared/billing";
 import { getSeoApiKeyStatus } from "@/serverFunctions/config";
-import { getOrCreateDefaultProject } from "@/serverFunctions/projects";
+import { getProjects } from "@/serverFunctions/projects";
+import { getLastProjectId } from "@/client/lib/active-project";
 
 const DATAFORSEO_HELP_PATH = "/help/dataforseo-api-key";
-const SUPPORT_PATH = "/support";
 
 export function AuthenticatedAppLayout({
   children,
@@ -43,12 +30,32 @@ export function AuthenticatedAppLayout({
   const setupModalRef = React.useRef<HTMLDivElement | null>(null);
   const [showMissingSeoApiKeyModal, setShowMissingSeoApiKeyModal] =
     React.useState(false);
-  const defaultProjectQuery = useQuery({
-    queryKey: ["defaultProject"],
-    queryFn: () => getOrCreateDefaultProject(),
+  // On non-project pages (e.g. /settings) there's no projectId in the URL, so
+  // derive one for the nav/switcher: prefer the last-visited project, else the
+  // most recent. The whole app tree is client-only (see root ClientOnly), so we
+  // can read localStorage synchronously during the first render — this lets the
+  // sidebar show the full project nav on the very first paint instead of briefly
+  // flashing only the always-visible Connect group while projects load.
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: () => getProjects(),
     enabled: !projectId,
   });
-  const headerProjectId = projectId ?? defaultProjectQuery.data?.id ?? null;
+  const [rememberedProjectId] = React.useState<string | null>(() =>
+    getLastProjectId(),
+  );
+  const fallbackProjects = projectsQuery.data ?? [];
+  const fallbackProjectId =
+    fallbackProjects.find((project) => project.id === rememberedProjectId)
+      ?.id ??
+    fallbackProjects[0]?.id ??
+    null;
+  // Once the projects list loads, fallbackProjectId is the validated choice
+  // (remembered-if-valid, else most recent). Before it loads, fall back to the
+  // remembered id so the project nav renders immediately; a stale id here only
+  // builds links that self-correct via the route guard once data arrives.
+  const sidebarProjectId =
+    projectId ?? fallbackProjectId ?? rememberedProjectId;
   const shouldCheckSeoApiKeyStatus = location.pathname !== BILLING_ROUTE;
   const seoApiKeyStatusQuery = useQuery({
     queryKey: ["seoApiKeyStatus"],
@@ -60,20 +67,6 @@ export function AuthenticatedAppLayout({
     : null;
   const seoApiKeyStatusError =
     shouldCheckSeoApiKeyStatus && seoApiKeyStatusQuery.isError;
-
-  const [chatOpen, setChatOpen] = React.useState(false);
-  const [chatWidth, setChatWidth] = React.useState<number>(() => {
-    if (typeof window !== "undefined") {
-      const savedWidth = localStorage.getItem("openseo_chat_width");
-      return savedWidth ? parseInt(savedWidth, 10) : 380;
-    }
-    return 380;
-  });
-
-  const handleChatWidthChange = (newWidth: number) => {
-    setChatWidth(newWidth);
-    localStorage.setItem("openseo_chat_width", String(newWidth));
-  };
 
   React.useEffect(() => {
     if (!shouldCheckSeoApiKeyStatus) {
@@ -121,256 +114,75 @@ export function AuthenticatedAppLayout({
     };
   }, [shouldShowMissingSeoApiKeyModal]);
 
-  React.useEffect(() => {
-    if (!projectId) {
-      setDrawerOpen(false);
-    }
-  }, [projectId]);
-
   return (
-    <div className="flex h-[100dvh] w-screen overflow-hidden bg-base-200">
-      {/* Persistent Left Sidebar on Desktop */}
-      {headerProjectId && (
-        <div className="hidden md:block h-full shrink-0">
-          <Sidebar projectId={headerProjectId} />
-        </div>
-      )}
-
-      {/* Main Content Area */}
-      <div className="flex flex-1 flex-col h-full min-w-0 overflow-hidden">
-        <TopNav
-          drawerOpen={drawerOpen}
-          projectId={headerProjectId}
-          pathname={location.pathname}
-          onOpenDrawer={() => setDrawerOpen(true)}
-          chatOpen={chatOpen}
-          onToggleChat={() => setChatOpen((prev) => !prev)}
-        />
-
-        <SeoApiStatusBanners
-          shouldShowSeoApiWarning={shouldShowSeoApiWarning}
-          seoApiKeyStatusError={seoApiKeyStatusError}
-        />
-
-        {banner}
-
-        <AppContent
-          drawerOpen={drawerOpen}
-          projectId={headerProjectId}
-          onCloseDrawer={() => setDrawerOpen(false)}
-        >
-          {children}
-        </AppContent>
+    <div className="flex h-[100dvh] bg-base-200">
+      <div className="hidden shrink-0 md:block">
+        <Sidebar projectId={sidebarProjectId} />
       </div>
 
-      {/* Chat Sidebar Drawer */}
-      {chatOpen && headerProjectId && (
-        <div
-          style={{ width: `${chatWidth}px` }}
-          className="h-full shrink-0 z-30 flex items-end border-l border-base-300 bg-base-100"
-        >
-          <ChatSidebar
-            projectId={headerProjectId}
-            onClose={() => setChatOpen(false)}
-            width={chatWidth}
-            onWidthChange={handleChatWidthChange}
-          />
+      <div className="flex min-w-0 flex-1 flex-col">
+        <MobileTopBar
+          drawerOpen={drawerOpen}
+          onOpenDrawer={() => setDrawerOpen(true)}
+        />
+
+        {/* PostHog-style cutout: the main content sits on a raised panel with a
+            thin strip of the sidebar background above it and a hairline border. */}
+        <div className="flex min-h-0 flex-1 flex-col md:pt-2">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-base-100 md:rounded-tl-lg md:border-l md:border-t md:border-base-300">
+            <SeoApiStatusBanners
+              shouldShowSeoApiWarning={shouldShowSeoApiWarning}
+              seoApiKeyStatusError={seoApiKeyStatusError}
+            />
+
+            {banner}
+
+            <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+          </div>
         </div>
-      )}
+      </div>
+
+      <MobileSidebarDrawer
+        open={drawerOpen}
+        projectId={sidebarProjectId}
+        onClose={() => setDrawerOpen(false)}
+      />
 
       <MissingSeoSetupModal
         ref={setupModalRef}
         isOpen={shouldShowMissingSeoApiKeyModal}
         onClose={() => setShowMissingSeoApiKeyModal(false)}
       />
+
+      <GscReEngagementModal
+        projectId={sidebarProjectId}
+        suppressed={shouldShowMissingSeoApiKeyModal}
+      />
     </div>
   );
 }
 
-function TopNav({
+function MobileTopBar({
   drawerOpen,
-  projectId,
-  pathname,
   onOpenDrawer,
-  chatOpen,
-  onToggleChat,
 }: {
   drawerOpen: boolean;
-  projectId: string | null;
-  pathname: string;
   onOpenDrawer: () => void;
-  chatOpen: boolean;
-  onToggleChat: () => void;
 }) {
-  const isSupportActive = pathname === SUPPORT_PATH;
-  const isSettingsActive = pathname === "/settings";
-
   return (
-    <div className="navbar shrink-0 gap-2 border-b border-base-300 bg-base-100 h-16">
-      <div className="flex flex-none items-center md:hidden">
-        {projectId ? (
-          <button
-            type="button"
-            className="btn btn-square btn-ghost"
-            aria-label="Toggle sidebar"
-            aria-expanded={drawerOpen}
-            onClick={onOpenDrawer}
-          >
-            <Menu className="h-6 w-6" />
-          </button>
-        ) : null}
-        <Link to="/" className="ml-1 flex items-center">
-          <Logo className="h-9 w-auto text-base-content" />
-        </Link>
-      </div>
-
-      <div className="hidden items-center gap-1 md:flex">
-        {/* Navigation is persistent in the left sidebar on desktop */}
-      </div>
-
-      <div className="flex-1" />
-
-      <div className="hidden flex-none items-center gap-2 md:flex">
-        <div className="tooltip tooltip-bottom" data-tip="Help & Community">
-          <Link
-            to={SUPPORT_PATH}
-            className={`btn btn-ghost btn-circle btn-sm ${
-              isSupportActive
-                ? "bg-primary/10 text-primary"
-                : "text-base-content/60 hover:text-base-content"
-            }`}
-          >
-            <CircleHelp className="h-4 w-4" />
-          </Link>
-        </div>
-
-        <button
-          type="button"
-          onClick={onToggleChat}
-          className={`btn btn-sm gap-1.5 font-semibold transition-all rounded-lg text-xs h-9 min-h-0 ${
-            chatOpen
-              ? "bg-primary text-primary-content hover:bg-primary/95 shadow-sm border-primary"
-              : "btn-ghost border border-base-300 hover:bg-base-200 text-base-content/85"
-          }`}
-        >
-          <Sparkles className="size-3.5" />
-          <span>Ask AI</span>
-        </button>
-
-        <div className="tooltip tooltip-bottom" data-tip="Settings">
-          <Link
-            to="/settings"
-            className={`btn btn-ghost btn-circle btn-sm ${
-              isSettingsActive
-                ? "bg-primary/10 text-primary"
-                : "text-base-content/60 hover:text-base-content"
-            }`}
-          >
-            <Settings className="h-4 w-4" />
-          </Link>
-        </div>
-
-        <div className="flex items-center rounded-full border border-base-300 bg-base-100/70 px-1 py-1 shadow-sm">
-          <div
-            className="tooltip tooltip-left before:whitespace-nowrap"
-            data-tip="Multiple projects coming soon"
-          >
-            <button
-              type="button"
-              className="flex h-10 cursor-default items-center gap-2 rounded-full px-3 text-left transition-colors hover:bg-base-200/80"
-              aria-label="Current project"
-            >
-              <span className="max-w-28 truncate text-sm font-medium text-base-content">
-                Default
-              </span>
-              <ChevronsUpDown className="size-3.5 shrink-0 text-base-content/35" />
-            </button>
-          </div>
-
-          <AccountMenu />
-        </div>
-      </div>
-
-      <AccountMenu mobileOnly />
+    <div className="flex shrink-0 items-center gap-1 border-b border-base-300 bg-base-100 px-2 py-1.5 md:hidden">
+      <button
+        type="button"
+        className="btn btn-square btn-ghost btn-sm"
+        aria-label="Toggle sidebar"
+        aria-expanded={drawerOpen}
+        onClick={onOpenDrawer}
+      >
+        <Menu className="h-5 w-5" />
+      </button>
+      <Link to="/" className="ml-1 font-semibold text-base-content">
+        OpenSEO
+      </Link>
     </div>
-  );
-}
-
-function AccountMenu({ mobileOnly = false }: { mobileOnly?: boolean }) {
-  const { data: session } = useSession();
-  const isHostedMode = isHostedClientAuthMode();
-  const email = session?.user?.email;
-
-  const handleSignOut = () => signOutAndRedirect();
-
-  const menu = (
-    <div className={mobileOnly ? "ml-2 flex-none md:hidden" : "flex-none"}>
-      <div className="dropdown dropdown-end">
-        <button
-          type="button"
-          tabIndex={0}
-          className={`btn btn-ghost btn-circle ${mobileOnly ? "" : "hover:bg-base-200/80"}`}
-          aria-label="Open account menu"
-        >
-          <User className="h-5 w-5" />
-        </button>
-        <ul
-          tabIndex={0}
-          className="dropdown-content z-20 menu mt-3 min-w-56 rounded-box border border-base-300 bg-base-100 p-2 shadow-lg"
-        >
-          {email ? (
-            <li className="menu-title max-w-full">
-              <span className="truncate text-base-content" data-ph-mask>
-                {email}
-              </span>
-            </li>
-          ) : null}
-          {mobileOnly ? (
-            <li>
-              <Link to={SUPPORT_PATH} className="flex items-center gap-2">
-                <CircleHelp className="h-4 w-4" />
-                Help & Community
-              </Link>
-            </li>
-          ) : null}
-          {isHostedMode ? (
-            <li>
-              <Link to={BILLING_ROUTE} className="flex items-center gap-2">
-                <CreditCard className="h-4 w-4" />
-                Billing
-              </Link>
-            </li>
-          ) : null}
-          <li>
-            <Link to="/settings" className="flex items-center gap-2">
-              <Settings className="h-4 w-4" />
-              Settings
-            </Link>
-          </li>
-          {isHostedMode && email ? (
-            <li>
-              <button
-                type="button"
-                className="text-error"
-                onClick={handleSignOut}
-              >
-                Sign out
-              </button>
-            </li>
-          ) : null}
-        </ul>
-      </div>
-    </div>
-  );
-
-  if (mobileOnly) {
-    return menu;
-  }
-
-  return (
-    <>
-      <div className="mx-1 h-6 w-px bg-base-300" />
-      {menu}
-    </>
   );
 }

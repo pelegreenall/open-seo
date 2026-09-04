@@ -1,8 +1,15 @@
 import { env } from "cloudflare:workers";
-import type { BillingCustomerContext } from "@/server/billing/subscription";
-import { createDataforseoClient } from "@/server/lib/dataforseoClient";
+import {
+  customerHasPaidPlan,
+  type BillingCustomerContext,
+} from "@/server/billing/subscription";
+import {
+  createDataforseoClient,
+  fetchKeywordMetricsForList,
+} from "@/server/lib/dataforseo";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { AppError } from "@/server/lib/errors";
+import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 import type {
   RankTrackingConfig,
   RankCheckTriggerResult,
@@ -14,10 +21,17 @@ import {
 import {
   estimateRankCheckCredits,
   computeNextCheckAt,
-  devicesCount,
-  MAX_KEYWORDS_PER_CONFIG,
+  isScheduledRankTrackingInterval,
   MAX_CONFIGS_PER_PROJECT,
+  rankCheckCostApprovalError,
 } from "@/shared/rank-tracking";
+import {
+  resolveKeywordDataLanguage,
+  resolveMarket,
+} from "@/shared/keyword-locations";
+import { getLatestResults } from "./rankTrackingResults";
+import { toSqliteTimestamp } from "@/server/features/rank-tracking/rankTrackingTimestamps";
+import { RankTrackingKeywordService } from "./RankTrackingKeywordService";
 
 // ---------------------------------------------------------------------------
 // Config
@@ -25,29 +39,50 @@ import {
 
 async function createConfig(input: {
   projectId: string;
+  projectMarket: { locationCode: number; languageCode: string };
   domain: string;
   locationCode?: number;
   languageCode?: string;
+  locationName?: string;
   devices?: RankTrackingConfig["devices"];
   serpDepth: number;
   scheduleInterval?: RankTrackingConfig["scheduleInterval"];
 }) {
   const normalizedDomain = normalizeDomain(input.domain);
 
-  const locationCode = input.locationCode ?? 2840;
+  const { locationCode, languageCode } = resolveMarket(
+    input,
+    input.projectMarket,
+  );
+  const scheduleInterval = input.scheduleInterval ?? "weekly";
+  const nextCheckAt = isScheduledRankTrackingInterval(scheduleInterval)
+    ? computeNextCheckAt(scheduleInterval)
+    : null;
+
+  const locationName = input.locationName ?? null;
   const existing =
     await RankTrackingRepository.getConfigByProjectDomainLocation(
       input.projectId,
       normalizedDomain,
       locationCode,
+      locationName,
     );
-  if (existing) {
+  // The (project, domain, location) row still exists when a domain is
+  // archived — archiving only flips isActive to false. So re-adding an
+  // archived domain reactivates that row (keeping its keyword/ranking
+  // history) with the freshly chosen settings, rather than colliding with
+  // the unique index. An already-active row is a genuine duplicate.
+  if (existing?.isActive) {
     throw new AppError(
       "VALIDATION_ERROR",
-      "This domain + country combination is already being tracked",
+      locationName
+        ? "This domain + city combination is already being tracked"
+        : "This domain + country combination is already being tracked",
     );
   }
 
+  // Enforced for reactivations too, not just new rows — otherwise archiving
+  // and re-adding domains would push a project past the active-config cap.
   const allConfigs = await RankTrackingRepository.getConfigsForProject(
     input.projectId,
   );
@@ -58,26 +93,43 @@ async function createConfig(input: {
     );
   }
 
-  const configId = crypto.randomUUID();
-  const scheduleInterval = input.scheduleInterval ?? "weekly";
-  const nextCheckAt =
-    scheduleInterval === "daily" || scheduleInterval === "weekly"
-      ? computeNextCheckAt(scheduleInterval)
-      : null;
+  if (existing) {
+    await RankTrackingRepository.updateConfig(existing.id, input.projectId, {
+      isActive: true,
+      languageCode,
+      devices: input.devices ?? "both",
+      serpDepth: input.serpDepth,
+      scheduleInterval,
+      nextCheckAt,
+      // Drop any stale skip reason from before it was archived so the
+      // re-added domain doesn't surface an outdated warning.
+      lastSkipReason: null,
+    });
 
-  await RankTrackingRepository.createConfig({
+    return getValidatedConfig(existing.id, input.projectId);
+  }
+
+  const configId = crypto.randomUUID();
+  const config: RankTrackingConfig = {
     id: configId,
     projectId: input.projectId,
     domain: normalizedDomain,
     locationCode,
-    languageCode: input.languageCode ?? "en",
+    languageCode,
+    locationName,
     devices: input.devices ?? "both",
     serpDepth: input.serpDepth,
     scheduleInterval,
     nextCheckAt,
-  });
+    isActive: true,
+    lastCheckedAt: null,
+    lastSkipReason: null,
+    createdAt: toSqliteTimestamp(new Date()),
+  };
 
-  return { configId };
+  await RankTrackingRepository.createConfig(config);
+
+  return config;
 }
 
 async function updateConfig(
@@ -87,6 +139,7 @@ async function updateConfig(
     domain?: string;
     locationCode?: number;
     languageCode?: string;
+    locationName?: string | null;
     devices?: RankTrackingConfig["devices"];
     serpDepth?: number;
     scheduleInterval?: RankTrackingConfig["scheduleInterval"];
@@ -101,6 +154,8 @@ async function updateConfig(
     updates.locationCode = input.locationCode;
   if (input.languageCode !== undefined)
     updates.languageCode = input.languageCode;
+  if (input.locationName !== undefined)
+    updates.locationName = input.locationName;
   if (input.devices !== undefined) updates.devices = input.devices;
   if (input.serpDepth !== undefined) updates.serpDepth = input.serpDepth;
   if (input.isActive !== undefined) updates.isActive = input.isActive;
@@ -118,64 +173,6 @@ async function updateConfig(
 }
 
 // ---------------------------------------------------------------------------
-// Keywords
-// ---------------------------------------------------------------------------
-
-async function addKeywords(
-  configId: string,
-  projectId: string,
-  keywords: string[],
-) {
-  await getValidatedConfig(configId, projectId);
-
-  // Filter out keywords that already exist for this config.
-  // We must do this before inserting because onConflictDoNothing silently
-  // skips duplicates but we pre-generate UUIDs — returning those phantom IDs
-  // would cause the auto-check workflow to find no keywords and fail.
-  const existing = await RankTrackingRepository.getKeywordsForConfig(configId);
-
-  if (existing.length >= MAX_KEYWORDS_PER_CONFIG) {
-    throw new AppError(
-      "INTERNAL_ERROR",
-      `Maximum ${MAX_KEYWORDS_PER_CONFIG} keywords per domain. Currently tracking ${existing.length}.`,
-    );
-  }
-
-  const existingKeywords = new Set(existing.map((kw) => kw.keyword));
-  const available = MAX_KEYWORDS_PER_CONFIG - existing.length;
-
-  const seen = new Set<string>();
-  const rows: Array<{ id: string; configId: string; keyword: string }> = [];
-  for (const raw of keywords) {
-    if (rows.length >= available) break;
-    const normalized = raw.trim().toLowerCase();
-    if (
-      normalized &&
-      !seen.has(normalized) &&
-      !existingKeywords.has(normalized)
-    ) {
-      seen.add(normalized);
-      rows.push({ id: crypto.randomUUID(), configId, keyword: normalized });
-    }
-  }
-
-  if (rows.length > 0) {
-    await RankTrackingRepository.addKeywordsToConfig(rows);
-  }
-
-  return { added: rows.length, addedIds: rows.map((r) => r.id) };
-}
-
-async function removeKeywords(
-  configId: string,
-  projectId: string,
-  keywordIds: string[],
-) {
-  await getValidatedConfig(configId, projectId);
-  await RankTrackingRepository.removeKeywordsFromConfig(keywordIds, configId);
-}
-
-// ---------------------------------------------------------------------------
 // Trigger a manual check
 // ---------------------------------------------------------------------------
 
@@ -184,8 +181,11 @@ async function triggerCheck(input: {
   projectId: string;
   billingCustomer: BillingCustomerContext;
   keywordIds?: string[];
+  maxCostCredits?: number;
 }): Promise<RankCheckTriggerResult> {
   const config = await getValidatedConfig(input.configId, input.projectId);
+
+  await requireRankCheckAccess(input.billingCustomer.organizationId);
 
   const keywords = await RankTrackingRepository.getKeywordsForConfig(config.id);
   if (keywords.length === 0) {
@@ -193,6 +193,21 @@ async function triggerCheck(input: {
       "INTERNAL_ERROR",
       "No keywords to track. Add keywords to this domain first.",
     );
+  }
+
+  if (input.maxCostCredits != null) {
+    const { costCredits } = estimateRankCheckCredits(
+      keywords.length,
+      config.devices,
+      config.serpDepth,
+      "live",
+    );
+    if (costCredits > input.maxCostCredits) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        rankCheckCostApprovalError(costCredits, input.maxCostCredits),
+      );
+    }
   }
 
   return beginRankCheckRun({
@@ -207,6 +222,7 @@ async function triggerCheck(input: {
     },
     keywordsTotal: input.keywordIds ? input.keywordIds.length : keywords.length,
     keywordIds: input.keywordIds,
+    maxCostCredits: input.maxCostCredits,
     trigger: "manual",
     workflowStartErrorMessage: "Failed to start rank check workflow",
   });
@@ -237,88 +253,77 @@ async function getLatestRun(configId: string, projectId: string) {
 // Keyword metrics (volume, difficulty, CPC)
 // ---------------------------------------------------------------------------
 
-const KEYWORD_OVERVIEW_BATCH_SIZE = 700;
-
 async function refreshKeywordMetrics(
   configId: string,
   projectId: string,
   billingCustomer: BillingCustomerContext,
 ): Promise<{ updated: number }> {
   const config = await getValidatedConfig(configId, projectId);
+  await requireRankCheckAccess(billingCustomer.organizationId);
   const keywords = await RankTrackingRepository.getKeywordsForConfig(configId);
   if (keywords.length === 0) return { updated: 0 };
 
   const client = createDataforseoClient(billingCustomer);
+  const metrics = await fetchKeywordMetricsForList(client, {
+    keywords: keywords.map((kw) => kw.keyword),
+    locationCode: config.locationCode,
+    // Trackers can pair any SERP language with any country; the keyword-data
+    // APIs only serve the country's own languages.
+    languageCode: resolveKeywordDataLanguage(
+      config.locationCode,
+      config.languageCode,
+    ),
+    // Local configs get volume/CPC scoped to the tracked city; national
+    // numbers can overstate local demand by orders of magnitude.
+    locationName: config.locationName ?? undefined,
+    creditFeature: "rank_tracking",
+  });
+  const byKeyword = new Map(
+    metrics.map((metric) => [metric.keyword.toLowerCase(), metric]),
+  );
+
   const now = new Date().toISOString();
-  let updated = 0;
+  const updates = keywords
+    .map((kw) => {
+      const metric = byKeyword.get(kw.keyword.toLowerCase());
+      if (!metric) return null;
+      // Rank tracking only tracks volume / difficulty / CPC.
+      return {
+        id: kw.id,
+        searchVolume: metric.searchVolume,
+        keywordDifficulty: metric.keywordDifficulty,
+        cpc: metric.cpc,
+        metricsFetchedAt: now,
+      };
+    })
+    .filter((u): u is NonNullable<typeof u> => u !== null);
 
-  for (let i = 0; i < keywords.length; i += KEYWORD_OVERVIEW_BATCH_SIZE) {
-    const batch = keywords.slice(i, i + KEYWORD_OVERVIEW_BATCH_SIZE);
-    const items = await client.labs.keywordOverview({
-      keywords: batch.map((kw) => kw.keyword),
-      locationCode: config.locationCode,
-      languageCode: config.languageCode,
-    });
-
-    // Build a lookup by lowercase keyword
-    const metricsMap = new Map<
-      string,
-      {
-        searchVolume: number | null;
-        keywordDifficulty: number | null;
-        cpc: number | null;
-      }
-    >();
-    for (const item of items) {
-      metricsMap.set(item.keyword.toLowerCase(), {
-        searchVolume: item.keyword_info?.search_volume ?? null,
-        keywordDifficulty: item.keyword_properties?.keyword_difficulty ?? null,
-        cpc: item.keyword_info?.cpc ?? null,
-      });
-    }
-
-    const updates = batch
-      .map((kw) => {
-        const metrics = metricsMap.get(kw.keyword.toLowerCase());
-        if (!metrics) return null;
-        return {
-          id: kw.id,
-          searchVolume: metrics.searchVolume,
-          keywordDifficulty: metrics.keywordDifficulty,
-          cpc: metrics.cpc,
-          metricsFetchedAt: now,
-        };
-      })
-      .filter((u): u is NonNullable<typeof u> => u !== null);
-
-    if (updates.length > 0) {
-      await RankTrackingRepository.updateKeywordMetrics(updates);
-      updated += updates.length;
-    }
-  }
-
-  return { updated };
+  if (updates.length === 0) return { updated: 0 };
+  await RankTrackingRepository.updateKeywordMetrics(updates);
+  return { updated: updates.length };
 }
 
 // ---------------------------------------------------------------------------
-// Cost estimation
+// MCP/browser read models and access policy
 // ---------------------------------------------------------------------------
 
-async function estimateCost(configId: string, projectId: string) {
+async function getConfigs(projectId: string) {
+  return RankTrackingRepository.getConfigsForProject(projectId);
+}
+
+async function getTracker(configId: string, projectId: string) {
   const config = await getValidatedConfig(configId, projectId);
-  const keywordCount =
-    await RankTrackingRepository.getKeywordCountForConfig(configId);
-  const { costUsd, costCredits } = estimateRankCheckCredits(
-    keywordCount,
-    config.devices,
-    config.serpDepth,
+  const results = await getLatestResults(configId, projectId);
+  return { config, results };
+}
+
+async function requireRankCheckAccess(organizationId: string) {
+  if (!(await isHostedServerAuthMode())) return;
+  if (await customerHasPaidPlan(organizationId)) return;
+  throw new AppError(
+    "PAYMENT_REQUIRED",
+    "Upgrade to the paid plan to run rank checks",
   );
-  return {
-    costUsd,
-    costCredits,
-    keywordCount,
-    devicesCount: devicesCount(config.devices),
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +336,7 @@ async function getValidatedConfig(configId: string, projectId: string) {
     projectId,
   });
   if (!config) {
-    throw new AppError("INTERNAL_ERROR", "Rank tracking config not found");
+    throw new AppError("NOT_FOUND", "Rank tracking config not found");
   }
   return config;
 }
@@ -377,10 +382,13 @@ function formatRun(
 export const RankTrackingService = {
   createConfig,
   updateConfig,
-  addKeywords,
-  removeKeywords,
+  addKeywords: RankTrackingKeywordService.addKeywords,
+  removeKeywords: RankTrackingKeywordService.removeKeywords,
   triggerCheck,
   getLatestRun,
-  estimateCost,
+  estimateCost: RankTrackingKeywordService.estimateCost,
   refreshKeywordMetrics,
+  getConfigs,
+  getTracker,
+  requireRankCheckAccess,
 };

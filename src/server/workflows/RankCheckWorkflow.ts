@@ -4,11 +4,17 @@ import {
   type WorkflowStep,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
+import { withPgClient } from "@/db";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
 import { RankTrackingRepository } from "@/server/features/rank-tracking/repositories/RankTrackingRepository";
 import { failRunIfActive } from "@/server/features/rank-tracking/services/rankCheckRunGuards";
-import { runLiveCheck } from "@/server/workflows/rankCheckPaths";
-import { createDataforseoClient } from "@/server/lib/dataforseoClient";
+import {
+  runLiveCheck,
+  runQueuedCheck,
+  type QueuedCheckStats,
+} from "@/server/workflows/rankCheckPaths";
+import { pgStep } from "@/server/workflows/pgStep";
+import { createDataforseoClient } from "@/server/lib/dataforseo";
 import { captureServerEvent } from "@/server/lib/posthog";
 import { AppError } from "@/server/lib/errors";
 import { autumn } from "@/server/billing/autumn";
@@ -16,7 +22,10 @@ import {
   AUTUMN_SEO_DATA_BALANCE_FEATURE_ID,
   AUTUMN_SEO_DATA_TOPUP_BALANCE_FEATURE_ID,
 } from "@/shared/billing";
-import { estimateRankCheckCredits } from "@/shared/rank-tracking";
+import {
+  estimateRankCheckCredits,
+  rankCheckCostApprovalError,
+} from "@/shared/rank-tracking";
 import { isHostedServerAuthMode } from "@/server/lib/runtime-env";
 
 const SINGLE_ATTEMPT_STEP_CONFIG = {
@@ -32,19 +41,23 @@ interface RankCheckParams {
   domain: string;
   locationCode: number;
   languageCode: string;
+  locationName?: string;
   devices: "both" | "desktop" | "mobile";
   serpDepth: number;
   trigger: "manual" | "scheduled";
   keywordIds?: string[];
+  maxCostCredits?: number;
 }
 
-async function prepareRankCheckKeywords(input: {
+export async function prepareRankCheckKeywords(input: {
   runId: string;
   configId: string;
   billingCustomer: BillingCustomerContext;
   devices: RankCheckParams["devices"];
   serpDepth: number;
+  trigger: RankCheckParams["trigger"];
   keywordIds?: string[];
+  maxCostCredits?: number;
 }) {
   // If stale-cleanup marked our run failed before we got here, bail out
   // rather than resurrecting a superseded run.
@@ -72,13 +85,23 @@ async function prepareRankCheckKeywords(input: {
     throw new AppError("INTERNAL_ERROR", "No keywords to track");
   }
 
-  // Verify the user has enough credits for the full check before starting
-  if (await isHostedServerAuthMode()) {
-    const { costCredits } = estimateRankCheckCredits(
-      trackingKeywords.length,
-      input.devices,
-      input.serpDepth,
+  const { costCredits } = estimateRankCheckCredits(
+    trackingKeywords.length,
+    input.devices,
+    input.serpDepth,
+    input.trigger === "scheduled" ? "queued" : "live",
+  );
+  if (input.maxCostCredits != null && costCredits > input.maxCostCredits) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      rankCheckCostApprovalError(costCredits, input.maxCostCredits),
     );
+  }
+
+  // Verify the user has enough credits for the full check before starting.
+  // Scheduled checks go through the cheaper task queue, so estimate at queued
+  // pricing — a live-price estimate would skip checks the user can afford.
+  if (await isHostedServerAuthMode()) {
     const [monthlyCheck, topupCheck] = await Promise.all([
       autumn.check({
         customerId: input.billingCustomer.organizationId,
@@ -119,6 +142,7 @@ async function finalizeRankCheckRun(input: {
   billingCustomer: BillingCustomerContext;
   trigger: RankCheckParams["trigger"];
   batchError: string | null;
+  queueStats: QueuedCheckStats | null;
 }) {
   // If stale-cleanup already marked our run failed, don't overwrite that
   // decision with a completed status — a replacement run may already be
@@ -168,6 +192,19 @@ async function finalizeRankCheckRun(input: {
     lastSkipReason: null,
   });
 
+  // One-line summary per run so fallback rates are visible in Workers Logs.
+  // Keys match the PostHog event properties for log/event correlation.
+  const queueSummary = input.queueStats
+    ? ` queue_tasks=${input.queueStats.queueTasks} queue_collected=${input.queueStats.queueCollected} fallback_tasks=${input.queueStats.fallbackTasks} fallback_checked=${input.queueStats.fallbackChecked}`
+    : "";
+  // Error text can echo vendor/user content — keep it one line and bounded.
+  const errorSummary = errorMessage
+    ? ` error="${errorMessage.replace(/\s+/g, " ").slice(0, 200)}"`
+    : "";
+  console.log(
+    `[rank-check] ${input.runId} completed org=${input.billingCustomer.organizationId} project=${input.projectId} trigger=${input.trigger} keywords=${keywordsChecked}/${keywordsTotal}${queueSummary}${errorSummary}`,
+  );
+
   await captureServerEvent({
     distinctId: input.billingCustomer.userId,
     event: "rank_tracking:check_complete",
@@ -177,6 +214,14 @@ async function finalizeRankCheckRun(input: {
       status: "completed",
       trigger: input.trigger,
       keywords_checked: keywordsChecked,
+      ...(input.queueStats
+        ? {
+            queue_tasks: input.queueStats.queueTasks,
+            queue_collected: input.queueStats.queueCollected,
+            fallback_tasks: input.queueStats.fallbackTasks,
+            fallback_checked: input.queueStats.fallbackChecked,
+          }
+        : {}),
     },
   });
 }
@@ -219,6 +264,16 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
   RankCheckParams
 > {
   async run(event: WorkflowEvent<RankCheckParams>, step: WorkflowStep) {
+    // Scope a per-request Postgres client for this workflow invocation (no-op in
+    // D1 mode). The socket is reclaimed when the invocation ends, so there is
+    // nothing to tear down here.
+    return withPgClient(() => this.runScoped(event, step));
+  }
+
+  private async runScoped(
+    event: WorkflowEvent<RankCheckParams>,
+    step: WorkflowStep,
+  ) {
     const {
       runId,
       configId,
@@ -227,16 +282,17 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
       domain,
       locationCode,
       languageCode,
+      locationName,
       devices,
       serpDepth,
       trigger,
       keywordIds,
+      maxCostCredits,
     } = event.payload;
 
-    const client = createDataforseoClient(billingCustomer);
-
     // Guard: skip if config was archived after the workflow was triggered
-    const configCheck = await step.do(
+    const configCheck = await pgStep(
+      step,
       "check-active",
       { retries: { limit: 0, delay: "1 second" } },
       async () => {
@@ -257,7 +313,8 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
         `[rank-check] ${runId} starting (trigger=${trigger}, devices=${devices})`,
       );
 
-      const prepareResult = await step.do(
+      const prepareResult = await pgStep(
+        step,
         "prepare",
         { retries: { limit: 0, delay: "1 second" } },
         async () =>
@@ -267,18 +324,22 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
             billingCustomer,
             devices,
             serpDepth,
+            trigger,
             keywordIds,
+            maxCostCredits,
           }),
       );
 
       const keywords = prepareResult.keywords;
+      const client = createDataforseoClient(billingCustomer);
 
       console.log(`[rank-check] ${runId} loaded ${keywords.length} keywords`);
 
       let batchError: string | null = null;
+      let queueStats: QueuedCheckStats | null = null;
 
       try {
-        await runLiveCheck(step, {
+        const checkContext = {
           client,
           keywords,
           devices,
@@ -286,8 +347,16 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           domain,
           locationCode,
           languageCode,
+          locationName,
           runId,
-        });
+        };
+        // Scheduled checks use DataForSEO's task queue (~30% of live cost);
+        // manual checks stay on the live endpoint for instant results.
+        if (trigger === "scheduled") {
+          queueStats = await runQueuedCheck(step, checkContext);
+        } else {
+          await runLiveCheck(step, checkContext);
+        }
       } catch (error) {
         // Batch failure — snapshots for completed batches are already
         // persisted incrementally. Continue to finalization.
@@ -295,7 +364,7 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
         console.warn(`[rank-check] ${runId} partial failure: ${batchError}`);
       }
 
-      await step.do("finalize", SINGLE_ATTEMPT_STEP_CONFIG, async () =>
+      await pgStep(step, "finalize", SINGLE_ATTEMPT_STEP_CONFIG, async () =>
         finalizeRankCheckRun({
           runId,
           configId,
@@ -303,11 +372,12 @@ export class RankCheckWorkflow extends WorkflowEntrypoint<
           billingCustomer,
           trigger,
           batchError,
+          queueStats,
         }),
       );
     } catch (error) {
       console.error(`Rank check ${runId} failed:`, error);
-      await step.do("mark-failed", SINGLE_ATTEMPT_STEP_CONFIG, async () =>
+      await pgStep(step, "mark-failed", SINGLE_ATTEMPT_STEP_CONFIG, async () =>
         markRankCheckRunFailed({
           runId,
           configId,

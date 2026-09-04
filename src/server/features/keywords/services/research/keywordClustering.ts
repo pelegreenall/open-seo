@@ -7,7 +7,7 @@ import type {
   SubtopicCluster,
   ClusterKeywordItem,
 } from "@/types/schemas/keywordClustering";
-import { fetchLlmResponseRaw } from "@/server/lib/dataforseoLlm";
+import { fetchLlmResponse } from "@/server/lib/dataforseo/ai";
 
 function getWords(kw: string): string[] {
   const STOP_WORDS = new Set([
@@ -88,6 +88,7 @@ export async function clusterKeywords(
         languageCode: input.languageCode,
         resultLimit: 150,
         mode: "auto",
+        clickstream: false,
       },
       billingCustomer
     );
@@ -255,10 +256,10 @@ export async function clusterKeywords(
     const basePrompt = `Group names JSON list ONLY for: ${listForPrompt}`;
     const finalPrompt = basePrompt.slice(0, 480); // Strict safety cut-off
 
-    const response = await fetchLlmResponseRaw({
+    const response = await fetchLlmResponse({
       userPrompt: finalPrompt,
       modelSlug: "gemini",
-      modelName: "gemini-1.5-flash",
+      modelName: "gemini-2.5-pro",
       webSearch: false,
       maxOutputTokens: 256,
     });

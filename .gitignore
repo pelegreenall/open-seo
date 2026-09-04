@@ -13,8 +13,12 @@ dist-sourcemaps/
 .DS_Store
 .cache
 .env
-.env.local
-.env.production
+.env.
+.env.*
+!.env.example
+!.env.preview.example
+!.env.production.example
+!.env.selfhost.example
 .vercel
 .output
 .nitro
@@ -34,9 +38,12 @@ dist-sourcemaps/
 # Localflare generated files
 .localflare/
 
-# Local Claude config
-.claude/
+# Local Claude config (skills are shared)
+.claude/*
+!.claude/skills/
 
 # OpenSEO local sandbox workspace
 .sandbox-workspace/
 
+# Alchemy local state + bundle artifacts (SaaS deploys)
+.alchemy/

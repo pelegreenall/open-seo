@@ -7,19 +7,19 @@ import {
   getFormError,
   shouldValidateFieldOnChange,
 } from "@/client/lib/forms";
-import type { BacklinksSearchState } from "./backlinksPageTypes";
+import { ResearchScopeSelect } from "@/client/components/ResearchScopeSelect";
 import {
-  inferBacklinksSearchScopeFromTarget,
-  resolveBacklinksSearchScope,
-} from "./backlinksSearchScope";
+  defaultScopeForInput,
+  parseResearchTarget,
+} from "@/shared/researchScope";
+import type { BacklinksSearchState } from "./backlinksPageTypes";
 
 type SearchDraft = Pick<BacklinksSearchState, "target" | "scope">;
 
 function getBacklinksValidationErrors(
   value: SearchDraft,
   shouldValidateUntouchedField: boolean,
-  canOpenSearch?: (value: SearchDraft) => boolean,
-  tabLimit?: number,
+  validateFormat = false,
 ) {
   if (!value.target.trim()) {
     if (!shouldValidateUntouchedField) {
@@ -33,34 +33,26 @@ function getBacklinksValidationErrors(
     });
   }
 
-  const normalizedValue = {
-    ...value,
-    target: value.target.trim(),
-  };
-
-  if (canOpenSearch && !canOpenSearch(normalizedValue)) {
-    return createFormValidationErrors({
-      fields: {
-        target: `Close a tab to open more searches (max ${tabLimit ?? 8}).`,
-      },
-    });
+  if (validateFormat) {
+    const parsed = parseResearchTarget(value.target, value.scope);
+    if (!parsed.ok) {
+      return createFormValidationErrors({
+        fields: { target: parsed.message },
+      });
+    }
   }
 
   return null;
 }
 
 export function BacklinksSearchCard({
-  canOpenSearch,
   errorMessage,
   initialValues,
   onSubmit,
-  tabLimit,
 }: {
-  canOpenSearch?: (values: SearchDraft) => boolean;
   errorMessage: string | null;
   initialValues: SearchDraft;
   onSubmit: (values: SearchDraft) => void;
-  tabLimit?: number;
 }) {
   const [userSelectedScope, setUserSelectedScope] = useState(false);
   const form = useForm({
@@ -70,25 +62,11 @@ export function BacklinksSearchCard({
         getBacklinksValidationErrors(
           value,
           shouldValidateFieldOnChange(formApi, "target"),
-          canOpenSearch,
-          tabLimit,
         ),
-      onSubmit: ({ value }) =>
-        getBacklinksValidationErrors(value, true, canOpenSearch, tabLimit),
+      onSubmit: ({ value }) => getBacklinksValidationErrors(value, true, true),
     },
     onSubmit: ({ value }) => {
-      const target = value.target.trim();
-      const scope = resolveBacklinksSearchScope({
-        target,
-        selectedScope: value.scope,
-        userSelectedScope,
-      });
-
-      onSubmit({
-        ...value,
-        target,
-        scope,
-      });
+      onSubmit({ ...value, target: value.target.trim() });
     },
   });
 
@@ -108,14 +86,14 @@ export function BacklinksSearchCard({
           }}
         >
           <div className="space-y-3">
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-12">
+            <div className="flex flex-col gap-3 lg:flex-row">
               <form.Field name="target">
                 {(field) => {
                   const targetError = getFieldError(field.state.meta.errors);
 
                   return (
                     <label
-                      className={`input input-bordered lg:col-span-10 flex items-center gap-2 ${targetError ? "input-error" : ""}`}
+                      className={`input input-bordered flex flex-1 items-center gap-2 ${targetError ? "input-error" : ""}`}
                     >
                       <Search className="size-4 text-base-content/60" />
                       <input
@@ -127,7 +105,7 @@ export function BacklinksSearchCard({
                           if (!userSelectedScope) {
                             form.setFieldValue(
                               "scope",
-                              inferBacklinksSearchScopeFromTarget(nextTarget),
+                              defaultScopeForInput(nextTarget),
                             );
                           }
                         }}
@@ -137,11 +115,23 @@ export function BacklinksSearchCard({
                 }}
               </form.Field>
 
+              <form.Field name="scope">
+                {(field) => (
+                  <ResearchScopeSelect
+                    value={field.state.value}
+                    onChange={(scope) => {
+                      setUserSelectedScope(true);
+                      field.handleChange(scope);
+                    }}
+                  />
+                )}
+              </form.Field>
+
               <form.Subscribe selector={(state) => state.isSubmitting}>
                 {(isSubmitting) => (
                   <button
                     type="submit"
-                    className="btn btn-primary lg:col-span-2"
+                    className="btn btn-primary shrink-0 px-6"
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? "Loading..." : "Search"}
@@ -169,35 +159,6 @@ export function BacklinksSearchCard({
                 ) : null;
               }}
             </form.Subscribe>
-
-            <div className="flex items-center gap-1">
-              <form.Field name="scope">
-                {(field) => (
-                  <>
-                    <button
-                      type="button"
-                      className={`btn btn-xs ${field.state.value === "domain" ? "btn-soft" : "btn-ghost"}`}
-                      onClick={() => {
-                        setUserSelectedScope(true);
-                        field.handleChange("domain");
-                      }}
-                    >
-                      Site-wide
-                    </button>
-                    <button
-                      type="button"
-                      className={`btn btn-xs ${field.state.value === "page" ? "btn-soft" : "btn-ghost"}`}
-                      onClick={() => {
-                        setUserSelectedScope(true);
-                        field.handleChange("page");
-                      }}
-                    >
-                      Exact page
-                    </button>
-                  </>
-                )}
-              </form.Field>
-            </div>
           </div>
         </form>
 

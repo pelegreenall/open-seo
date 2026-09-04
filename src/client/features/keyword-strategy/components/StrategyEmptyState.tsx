@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Search, Sparkles } from "lucide-react";
-import { LOCATION_OPTIONS } from "@/client/features/keywords/locations";
+import { LABS_LOCATION_OPTIONS } from "@/shared/keyword-locations";
 
 type Props = {
   onSubmit: (seed: string, locationCode: number) => void;
@@ -63,7 +63,7 @@ export function StrategyEmptyState({ onSubmit, isLoading }: Props) {
                 onChange={(e) => setLocationCode(Number(e.target.value))}
                 disabled={isLoading}
               >
-                {LOCATION_OPTIONS.map((option) => (
+                {LABS_LOCATION_OPTIONS.map((option) => (
                   <option key={option.code} value={option.code}>
                     {option.label}
                   </option>

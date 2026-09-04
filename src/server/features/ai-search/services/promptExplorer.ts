@@ -1,9 +1,14 @@
 import { waitUntil } from "cloudflare:workers";
 import type { BillingCustomerContext } from "@/server/billing/subscription";
-import { createDataforseoClient } from "@/server/lib/dataforseoClient";
+import { createDataforseoClient } from "@/server/lib/dataforseo";
 import type { LlmResponseResult } from "@/server/lib/dataforseoLlmSchemas";
 import { AppError } from "@/server/lib/errors";
-import { buildCacheKey, getCached, setCached } from "@/server/lib/r2-cache";
+import {
+  AI_SEARCH_PROMPT_CACHE_NAMESPACE,
+  buildCacheKey,
+  getCached,
+  setCached,
+} from "@/server/lib/r2-cache";
 import { safeHostname, safeHttpUrl } from "@/server/features/ai-search/safeUrl";
 import {
   promptExplorerModelResultSchema,
@@ -88,7 +93,7 @@ type RunModelArgs = {
 async function runModel(
   args: RunModelArgs,
 ): Promise<PromptExplorerModelResult> {
-  const cacheKey = await buildCacheKey("ai-search:prompt-response", {
+  const cacheKey = await buildCacheKey(AI_SEARCH_PROMPT_CACHE_NAMESPACE, {
     organizationId: args.billingCustomer.organizationId,
     projectId: args.input.projectId,
     model: args.model,
@@ -115,7 +120,9 @@ async function runModel(
   const shaped = shapeSuccess(args.model, rawResponse);
 
   waitUntil(
-    setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS).catch((err) => {
+    setCached(cacheKey, shaped, PROMPT_RESPONSE_TTL_SECONDS, {
+      organizationId: args.billingCustomer.organizationId,
+    }).catch((err) => {
       console.error("ai-search.prompt-response.cache-write failed:", err);
     }),
   );
@@ -123,10 +130,12 @@ async function runModel(
   return reapplyHighlightBrand(shaped, args.highlightBrand);
 }
 
-// DataForSEO's Claude catalog caps at the 4.0 family (no Sonnet 4.5+ yet).
+// Each value must be a member of ACCEPTED_LLM_MODEL_NAMES in dataforseo/ai.ts,
+// which mirrors DataForSEO's llm_responses/models catalog. DataForSEO dropped
+// the Claude Sonnet 4.0 family, so we target the 4.5 alias (latest dated 4.5).
 const MODEL_NAMES: Record<PromptExplorerModel, string> = {
   chat_gpt: "gpt-5",
-  claude: "claude-sonnet-4-0",
+  claude: "claude-sonnet-4-5",
   gemini: "gemini-2.5-pro",
   perplexity: "sonar-reasoning-pro",
 };
@@ -205,7 +214,7 @@ function extractText(response: LlmResponseResult): string {
   return textParts.join("\n\n").trim();
 }
 
-function extractCitations(
+export function extractCitations(
   response: LlmResponseResult,
 ): PromptExplorerCitation[] {
   const seen = new Set<string>();
@@ -215,10 +224,10 @@ function extractCitations(
     if (item.type !== "message") continue;
     for (const section of item.sections ?? []) {
       for (const annotation of section.annotations ?? []) {
-        if (annotation.type !== "citation") continue;
-        // Drop non-http(s) URLs — LLMs can be coaxed into emitting
-        // `javascript:` payloads as "citations" and we render these as
-        // <a href> in the UI.
+        // DataForSEO annotations are untyped `{ title, url }` reference
+        // objects (AnnotationInfo) — there is no citation-type discriminator
+        // to filter on. Guard on URL safety only: LLMs can be coaxed into
+        // emitting `javascript:` payloads, and we render these as <a href>.
         const safeUrl = safeHttpUrl(annotation.url);
         if (!safeUrl || seen.has(safeUrl)) continue;
         seen.add(safeUrl);
@@ -284,7 +293,6 @@ function mapErrorToResult(
   if (
     reason instanceof AppError &&
     (reason.code === "INSUFFICIENT_CREDITS" ||
-      reason.code === "AI_SEARCH_NOT_ENABLED" ||
       reason.code === "AI_SEARCH_BILLING_ISSUE")
   ) {
     // These account-level failures apply to every model, so surface one clear

@@ -1,53 +1,33 @@
 import { describe, expect, it } from "vitest";
-import type { BacklinksRow } from "./backlinksPageTypes";
-import { groupBacklinksByDomain } from "./backlinksPageUtils";
+import { truncateMiddle } from "./backlinksPageUtils";
 
-function makeBacklinkRow(overrides: Partial<BacklinksRow> = {}): BacklinksRow {
-  return {
-    domainFrom: "source.example",
-    urlFrom: "https://source.example/post",
-    urlTo: "https://target.example/",
-    anchor: null,
-    itemType: null,
-    isDofollow: true,
-    relAttributes: [],
-    rank: null,
-    domainFromRank: null,
-    pageFromRank: null,
-    spamScore: null,
-    firstSeen: null,
-    lastSeen: null,
-    isLost: false,
-    isBroken: false,
-    linksCount: null,
-    ...overrides,
-  };
-}
-
-describe("groupBacklinksByDomain", () => {
-  it("sums grouped backlink totals from linksCount", () => {
-    const groups = groupBacklinksByDomain([
-      makeBacklinkRow({ linksCount: 5 }),
-      makeBacklinkRow({
-        urlFrom: "https://source.example/second-post",
-        urlTo: "https://target.example/pricing",
-      }),
-    ]);
-
-    expect(groups).toHaveLength(1);
-    expect(groups[0]?.backlinkCount).toBe(6);
+describe("truncateMiddle", () => {
+  it("returns the value unchanged when it already fits", () => {
+    expect(truncateMiddle("short", 10)).toBe("short");
+    expect(truncateMiddle("exactly-ten", "exactly-ten".length)).toBe(
+      "exactly-ten",
+    );
   });
 
-  it("falls back to one backlink when linksCount is missing", () => {
-    const groups = groupBacklinksByDomain([
-      makeBacklinkRow({ linksCount: null }),
-      makeBacklinkRow({
-        domainFrom: "other.example",
-        urlFrom: "https://other.example/post",
-        linksCount: 0,
-      }),
-    ]);
+  it("never returns a string longer than maxLength", () => {
+    const value = "/very/long/path/segment/that/keeps/going/here";
+    for (let maxLength = 0; maxLength <= value.length; maxLength++) {
+      expect(truncateMiddle(value, maxLength).length).toBeLessThanOrEqual(
+        maxLength,
+      );
+    }
+  });
 
-    expect(groups.map((group) => group.backlinkCount)).toEqual([1, 1]);
+  it("keeps head and tail around a middle ellipsis", () => {
+    expect(truncateMiddle("abcdefghijklmno", 10)).toBe("abc...mno");
+    expect(truncateMiddle("/very/long/path/segment/here", 12)).toBe(
+      "/ver...here",
+    );
+  });
+
+  it("head-truncates when there is no room for both sides", () => {
+    expect(truncateMiddle("abcdefgh", 4)).toBe("a...");
+    expect(truncateMiddle("abcdefgh", 3)).toBe("abc");
+    expect(truncateMiddle("abcdefgh", 2)).toBe("ab");
   });
 });

@@ -6,6 +6,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import { devtools } from "@tanstack/devtools-vite";
 import { sandboxBridgePlugin } from "./vite-plugins/sandbox-bridge";
+import { leanWorkerBundle } from "./vite-plugin-lean-worker-bundle";
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
@@ -28,6 +29,7 @@ export default defineConfig(({ mode }) => {
       "BYPASS_EMAIL_VERIFICATION",
       "POSTHOG_PUBLIC_KEY",
       "POSTHOG_HOST",
+      "TURNSTILE_SITE_KEY",
     ],
     server: {
       allowedHosts,
@@ -43,6 +45,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       sandboxBridgePlugin(),
+      leanWorkerBundle(),
       showDevtools
         ? devtools({
             consolePiping: {
@@ -51,7 +54,15 @@ export default defineConfig(({ mode }) => {
             },
           })
         : null,
-      cloudflare({ inspectorPort: false, viteEnvironment: { name: "ssr" } }),
+      cloudflare({
+        inspectorPort: false,
+        viteEnvironment: { name: "ssr" },
+        // The site-audit aux worker builds to dist/open_seo_audit/ and runs
+        // beside the main worker in dev and preview, with the app's
+        // cross-script SITE_AUDIT_WORKFLOW / AUDIT_SCRATCHPAD bindings
+        // resolved against it.
+        auxiliaryWorkers: [{ configPath: "./wrangler.audit.jsonc" }],
+      }),
       tsConfigPaths(),
       tanstackStart(),
       viteReact(),

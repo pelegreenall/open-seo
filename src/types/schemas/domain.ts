@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isValidDomainHost, researchScopeSchema } from "@/shared/researchScope";
 
 /**
  * Extract and validate a bare hostname from user input that may be a full URL.
@@ -20,27 +21,33 @@ export const domainField = z
   .transform((val, ctx) => {
     try {
       const hostname = normalizeDomain(val);
-      if (!hostname.includes(".")) {
-        ctx.addIssue({ code: "custom", message: "Invalid domain format" });
+      if (!hostname.includes(".") || !isValidDomainHost(hostname)) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Enter a valid domain like example.com",
+        });
         return z.NEVER;
       }
       return hostname;
     } catch {
-      ctx.addIssue({ code: "custom", message: "Invalid domain format" });
+      ctx.addIssue({
+        code: "custom",
+        message: "Enter a valid domain like example.com",
+      });
       return z.NEVER;
     }
   });
 
-const booleanSearchParamSchema = z
+export const booleanSearchParamSchema = z
   .union([z.boolean(), z.enum(["true", "false"])])
   .transform((value) => value === true || value === "true");
 
 export const domainOverviewSchema = z.object({
   projectId: z.string().uuid(),
-  domain: z.string().min(1, "Domain is required").max(255),
-  includeSubdomains: z.boolean().default(true),
-  locationCode: z.number().int().positive().default(2840),
-  languageCode: z.string().min(2).max(8).default("en"),
+  domain: z.string().min(1, "Domain is required").max(2048),
+  scope: researchScopeSchema.optional(),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
 });
 
 /* ------------------------------------------------------------------ */
@@ -53,9 +60,10 @@ const domainTabs = ["keywords", "pages"] as const;
 
 export const domainKeywordSuggestionsSchema = z.object({
   projectId: z.string().uuid(),
-  domain: domainField,
-  locationCode: z.number().int().positive(),
-  languageCode: z.string().min(2).max(8),
+  domain: z.string().min(1, "Domain is required").max(2048),
+  scope: researchScopeSchema.optional(),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
 });
 
 export const DOMAIN_KEYWORDS_PAGE_SIZES = [50, 100, 200] as const;
@@ -97,10 +105,10 @@ export type DomainKeywordsFilters = z.infer<typeof domainKeywordsFiltersSchema>;
 
 export const domainKeywordsPageRequestSchema = z.object({
   projectId: z.string().uuid(),
-  domain: z.string().min(1).max(255),
-  includeSubdomains: z.boolean().default(true),
-  locationCode: z.number().int().positive().default(2840),
-  languageCode: z.string().min(2).max(8).default("en"),
+  domain: z.string().min(1).max(2048),
+  scope: researchScopeSchema.optional(),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
   page: z.number().int().positive().default(1),
   pageSize: z
     .number()
@@ -119,10 +127,10 @@ const domainPagesSortModes = ["traffic", "keywords"] as const;
 
 export const domainPagesPageRequestSchema = z.object({
   projectId: z.string().uuid(),
-  domain: z.string().min(1).max(255),
-  includeSubdomains: z.boolean().default(true),
-  locationCode: z.number().int().positive().default(2840),
-  languageCode: z.string().min(2).max(8).default("en"),
+  domain: z.string().min(1).max(2048),
+  scope: researchScopeSchema.optional(),
+  locationCode: z.number().int().positive().optional(),
+  languageCode: z.string().min(2).max(8).optional(),
   page: z.number().int().positive().default(1),
   pageSize: z
     .number()
@@ -149,6 +157,8 @@ const filterNumberParam = optionalSearchNumberParam;
 
 export const domainSearchSchema = z.object({
   domain: z.string().optional(),
+  scope: researchScopeSchema.optional().catch(undefined),
+  /** Legacy param: pre-scope URLs encoded "Include subdomains" here. */
   subdomains: booleanSearchParamSchema.optional(),
   sort: z.enum(domainSortModes).optional(),
   order: z.enum(domainSortOrders).optional(),

@@ -1,57 +1,60 @@
 import { createServerFn } from "@tanstack/react-start";
 import { BacklinksService } from "@/server/features/backlinks/services/BacklinksService";
 import { requireProjectContext } from "@/serverFunctions/middleware";
-import { backlinksOverviewInputSchema } from "@/types/schemas/backlinks";
+import {
+  backlinksOverviewInputSchema,
+  backlinksRowsPageRequestSchema,
+  referringDomainsPageRequestSchema,
+  topPagesPageRequestSchema,
+} from "@/types/schemas/backlinks";
+
+// The web UI exposes spam score as a regular user filter, so the implicit
+// DataForSEO spam-score cutoff stays off for all web requests.
+const WEB_SPAM_OPTIONS = { hideSpam: false };
 
 export const getBacklinksOverview = createServerFn({
   method: "POST",
 })
   .middleware(requireProjectContext)
-  .inputValidator((data: unknown) => backlinksOverviewInputSchema.parse(data))
+  .validator(backlinksOverviewInputSchema)
   .handler(async ({ data, context }) => {
-    const input = {
-      target: data.target,
-      scope: data.scope,
-    };
-    const spamOptions = {
-      hideSpam: data.hideSpam,
-      spamThreshold: data.spamThreshold,
-    };
     const profile = await BacklinksService.profileOverview(
-      input,
+      {
+        target: data.target,
+        scope: data.scope,
+      },
       context,
-      spamOptions,
     );
     return profile.overview;
   });
+
+export const getBacklinksRows = createServerFn({
+  method: "POST",
+})
+  .middleware(requireProjectContext)
+  .validator(backlinksRowsPageRequestSchema)
+  .handler(({ data, context }) =>
+    BacklinksService.profileBacklinksPage(data, context, WEB_SPAM_OPTIONS),
+  );
 
 export const getBacklinksReferringDomains = createServerFn({
   method: "POST",
 })
   .middleware(requireProjectContext)
-  .inputValidator((data: unknown) => backlinksOverviewInputSchema.parse(data))
-  .handler(async ({ data, context }) => {
-    const input = {
-      target: data.target,
-      scope: data.scope,
-    };
-    const profile = await BacklinksService.profileReferringDomains(
-      input,
+  .validator(referringDomainsPageRequestSchema)
+  .handler(({ data, context }) =>
+    BacklinksService.profileReferringDomainsPage(
+      data,
       context,
-    );
-    return profile.rows;
-  });
+      WEB_SPAM_OPTIONS,
+    ),
+  );
 
 export const getBacklinksTopPages = createServerFn({
   method: "POST",
 })
   .middleware(requireProjectContext)
-  .inputValidator((data: unknown) => backlinksOverviewInputSchema.parse(data))
-  .handler(async ({ data, context }) => {
-    const input = {
-      target: data.target,
-      scope: data.scope,
-    };
-    const profile = await BacklinksService.profileTopPages(input, context);
-    return profile.rows;
-  });
+  .validator(topPagesPageRequestSchema)
+  .handler(({ data, context }) =>
+    BacklinksService.profileTopPagesPage(data, context),
+  );

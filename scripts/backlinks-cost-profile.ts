@@ -5,6 +5,7 @@ import type {
   BacklinksLookupInput,
   BacklinksTargetScope,
 } from "@/types/schemas/backlinks";
+import { backlinksScopeParamSchema } from "@/types/schemas/backlinks";
 import { loadLocalEnv, parseArgs } from "./cli-utils";
 
 loadLocalEnv();
@@ -42,22 +43,45 @@ async function main() {
   const includeTabs = parseBoolean(args.includeTabs, true);
   const runs = [];
 
+  const pageInput = {
+    ...input,
+    page: 1,
+    pageSize: 100,
+    sortOrder: "desc",
+  } as const;
+
   for (let index = 0; index < repeat; index += 1) {
     const overview = await service.profileOverview(input, billingCustomer);
+    const rows = includeTabs
+      ? await service.profileBacklinksPage(
+          { ...pageInput, sortField: "rank", filters: {}, mode: "as_is" },
+          billingCustomer,
+        )
+      : null;
     const domains = includeTabs
-      ? await service.profileReferringDomains(input, billingCustomer)
+      ? await service.profileReferringDomainsPage(
+          { ...pageInput, sortField: "backlinks", filters: {} },
+          billingCustomer,
+        )
       : null;
     const pages = includeTabs
-      ? await service.profileTopPages(input, billingCustomer)
+      ? await service.profileTopPagesPage(
+          { ...pageInput, sortField: "backlinks", filters: {} },
+          billingCustomer,
+        )
       : null;
 
     runs.push({
       run: index + 1,
       overview: {
-        backlinksRows: overview.overview.backlinks.length,
         trendRows: overview.overview.trends.length,
         newLostRows: overview.overview.newLostTrends.length,
       },
+      backlinksTab: rows
+        ? {
+            rows: rows.rows.length,
+          }
+        : null,
       domainsTab: domains
         ? {
             rows: domains.rows.length,
@@ -120,8 +144,11 @@ function parseScope(
   value: string | undefined,
 ): BacklinksTargetScope | undefined {
   if (!value) return undefined;
-  if (value === "domain" || value === "page") return value;
-  printUsageAndExit(`Invalid scope: ${value}. Expected domain or page.`);
+  const parsed = backlinksScopeParamSchema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  printUsageAndExit(
+    `Invalid scope: ${value}. Expected domain, subdomains, or exact_url.`,
+  );
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number) {
@@ -133,7 +160,7 @@ function parsePositiveInteger(value: string | undefined, fallback: number) {
 function printUsageAndExit(message: string): never {
   console.error(message);
   console.error(
-    "Usage: pnpm billing:backlinks --target=example.com --confirmLive=true [--scope=domain|page] [--repeat=1] [--includeTabs=true|false] [--allowCi=true]",
+    "Usage: pnpm billing:backlinks --target=example.com --confirmLive=true [--scope=domain|subdomains|exact_url] [--repeat=1] [--includeTabs=true|false] [--allowCi=true]",
   );
   process.exit(1);
 }

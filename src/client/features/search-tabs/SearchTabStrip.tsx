@@ -9,7 +9,6 @@ import {
   buildKeywordResearchRequest,
   keywordResearchQueryFn,
 } from "@/client/features/keywords/hooks/useKeywordResearchData";
-import { getLanguageCode } from "@/client/features/keywords/locations";
 import { getBacklinksOverview } from "@/serverFunctions/backlinks";
 import { getDomainOverview } from "@/serverFunctions/domain";
 export type { SearchTab } from "./types";
@@ -44,6 +43,7 @@ export function SearchTabStrip({
     <div className="rounded-xl border border-base-300 bg-base-100 p-1">
       <div
         role="tablist"
+        aria-label="Search tabs"
         className="flex min-w-0 items-stretch gap-1 overflow-x-auto"
       >
         {tabs.map((tab) => {
@@ -179,7 +179,6 @@ function getSearchTabQueryConfig(
             projectId,
             target: input.target,
             scope: input.scope,
-            hideSpam: false,
           },
         }),
     };
@@ -188,25 +187,22 @@ function getSearchTabQueryConfig(
   if (tab.input.type === "domain") {
     const input = tab.input;
     const trimmedDomain = input.domain.trim();
-    const languageCode = getLanguageCode(input.locationCode);
 
     return {
       queryKey: [
         "domain-overview",
         projectId,
         trimmedDomain,
-        input.subdomains,
+        input.scope,
         input.locationCode,
-        languageCode,
       ],
       queryFn: () =>
         getDomainOverview({
           data: {
             projectId,
             domain: trimmedDomain,
-            includeSubdomains: input.subdomains,
+            scope: input.scope,
             locationCode: input.locationCode,
-            languageCode,
           },
         }),
       staleTime: 5 * 60_000,
@@ -220,6 +216,7 @@ function getSearchTabQueryConfig(
     locationCode: input.locationCode,
     resultLimit: input.resultLimit,
     mode: input.mode,
+    clickstream: input.clickstream,
   });
 
   return {

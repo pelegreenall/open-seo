@@ -1,19 +1,38 @@
 import { z } from "zod";
-import { createDataforseoClient } from "@/server/lib/dataforseoClient";
+import {
+  createDataforseoClient,
+  SERP_ANALYSIS_DEPTH,
+} from "@/server/lib/dataforseo";
 import { mcpResponse } from "@/server/mcp/formatters";
 import { buildProjectMeta } from "@/server/mcp/context";
 import { optionalMetaOutputSchema } from "@/server/mcp/output-schemas";
 import { withMcpProjectAuth } from "@/server/mcp/project-auth";
+import { resolveMarket } from "@/shared/keyword-locations";
+import { formatMcpTable, type McpTableColumn } from "@/server/mcp/table";
 import {
-  DEFAULT_LANGUAGE_CODE,
-  DEFAULT_LOCATION_CODE,
   languageCodeSchema,
   locationCodeSchema,
   projectIdSchema,
 } from "@/server/mcp/schemas";
 
+type SerpItem = {
+  type?: string | null;
+  rank: number | null;
+  title: string | null;
+  url: string | null;
+  domain: string | null;
+  description: string | null;
+};
+
+const SERP_ITEM_COLUMNS: McpTableColumn<SerpItem>[] = [
+  { header: "rank", value: (item) => item.rank },
+  { header: "domain", value: (item) => item.domain },
+  { header: "title", value: (item) => item.title },
+  { header: "url", value: (item) => item.url },
+];
+
 const querySchema = z.object({
-  keyword: z.string().min(1),
+  keyword: z.string().min(1).describe("Search query to fetch the SERP for."),
   locationCode: locationCodeSchema.optional(),
   languageCode: languageCodeSchema.optional(),
 });
@@ -27,6 +46,16 @@ const inputSchema = {
     .describe(
       "1-10 queries. Bulk-friendly — prefer this over multiple single-query calls.",
     ),
+  depth: z
+    .number()
+    .int()
+    .min(10)
+    .max(100)
+    .multipleOf(10)
+    .optional()
+    .describe(
+      "How many SERP rows to crawl per keyword — a multiple of 10 from 10 to 100, default 20. Google has no offset, so a deeper crawl re-fetches the top too: each additional 10 adds ~2.5 credits per keyword. Only raise it when you need ranks past the top 20.",
+    ),
 } as const;
 
 type Args = z.infer<z.ZodObject<typeof inputSchema>>;
@@ -36,7 +65,7 @@ export const getSerpResultsTool = {
   config: {
     title: "Get Google SERP results",
     description:
-      "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Charges credits per keyword (~30-60 each). Does not save results to OpenSEO. Per-keyword errors don't fail the batch.",
+      "Fetch live Google organic search results for 1-10 keywords. Use this to inspect who ranks for a query, verify competitors, compare SERPs across keywords, or gather source URLs before content planning. Returns the top `depth` result rows per keyword (default 20). Charges credits per keyword: ~5 each at the default depth 20, and each additional 10 of depth adds ~2.5. Does not save results to OpenSEO. Per-keyword errors don't fail the batch.",
     inputSchema,
     outputSchema: {
       results: z.array(
@@ -78,17 +107,17 @@ export const getSerpResultsTool = {
   },
   handler: withMcpProjectAuth(async (args: Args, context) => {
     const client = createDataforseoClient(context.billing);
-
+    const depth = args.depth ?? SERP_ANALYSIS_DEPTH;
     const results = await Promise.all(
       args.queries.map(async (q) => {
         try {
           const items = await client.serp.live({
             keyword: q.keyword,
-            locationCode: q.locationCode ?? DEFAULT_LOCATION_CODE,
-            languageCode: q.languageCode ?? DEFAULT_LANGUAGE_CODE,
+            ...resolveMarket(q, context.project),
+            depth,
           });
           // Trim noise — return only essentials per item.
-          const trimmed = items.slice(0, 20).map((item) => ({
+          const trimmed = items.slice(0, depth).map((item) => ({
             type: item.type,
             rank: item.rank_absolute ?? item.rank_group ?? null,
             title: item.title ?? null,
@@ -111,16 +140,13 @@ export const getSerpResultsTool = {
     const text =
       results
         .map((r) => {
-          if (r.ok) {
-            const top = r.items.slice(0, 3);
-            return `"${r.keyword}" (${r.items.length} results):\n${top
-              .map(
-                (it) =>
-                  `  #${it.rank ?? "?"}  ${it.domain ?? "?"} — ${it.title ?? "?"}`,
-              )
-              .join("\n")}`;
+          if (!r.ok) {
+            return `"${r.keyword}": FAILED — ${r.error}`;
           }
-          return `"${r.keyword}": FAILED — ${r.error}`;
+          if (r.items.length === 0) {
+            return `"${r.keyword}" (0 results)`;
+          }
+          return `"${r.keyword}" (${r.items.length} results):\n${formatMcpTable(r.items, SERP_ITEM_COLUMNS)}`;
         })
         .join("\n\n") +
       `\n\n${okCount} of ${results.length} queries succeeded.`;

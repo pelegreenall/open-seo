@@ -1,4 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
+// Aliased: `SavedKeywordsPage` has a local `sort` const (the saved-keyword
+// sort key) that would otherwise shadow this import at the call site.
+import { sort as sortArray } from "remeda";
 import {
   keepPreviousData,
   useMutation,
@@ -35,6 +38,7 @@ import { getStandardErrorMessage } from "@/client/lib/error-messages";
 import { captureClientEvent } from "@/client/lib/posthog";
 import {
   getSavedKeywords,
+  refreshSavedKeywordMetrics,
   removeSavedKeywords,
   updateSavedKeywordTags,
 } from "@/serverFunctions/keywords";
@@ -129,7 +133,7 @@ function SavedKeywordsPage() {
         if (!map.has(tag.id)) map.set(tag.id, tag);
       }
     }
-    return [...map.values()].toSorted((a, b) =>
+    return sortArray([...map.values()], (a, b) =>
       a.normalizedName.localeCompare(b.normalizedName),
     );
   }, [selectedRows]);
@@ -192,6 +196,21 @@ function SavedKeywordsPage() {
     },
   });
 
+  const refreshMetricsMutation = useMutation({
+    mutationFn: () => refreshSavedKeywordMetrics({ data: { projectId } }),
+    onSuccess: (result) => {
+      void invalidateSavedKeywords();
+      toast.success(
+        `Updated stats for ${result.updated} keyword${result.updated !== 1 ? "s" : ""}`,
+      );
+    },
+    onError: (error) => {
+      toast.error(
+        getStandardErrorMessage(error, "Could not update keyword stats."),
+      );
+    },
+  });
+
   const tagManage = useTagManage(projectId);
   const exporter = useSavedKeywordsExport({
     projectId,
@@ -227,8 +246,10 @@ function SavedKeywordsPage() {
         <SavedKeywordsHeader
           totalCount={totalCount}
           exporting={exporter.exporting}
+          metricsRefreshing={refreshMetricsMutation.isPending}
           onExportCsv={() => void exporter.exportFilteredCsv()}
           onExportSheets={() => void exporter.exportFilteredSheets()}
+          onRefreshMetrics={() => refreshMetricsMutation.mutate()}
         />
 
         <div className="overflow-hidden rounded-lg border border-base-300 bg-base-100">
