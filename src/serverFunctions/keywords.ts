@@ -10,6 +10,7 @@ import {
   updateSavedKeywordTagSchema,
   updateSavedKeywordTagsSchema,
 } from "@/types/schemas/keywords";
+import { clusterKeywordsInputSchema } from "@/types/schemas/keywordClustering";
 import { KeywordResearchService } from "@/server/features/keywords/services/KeywordResearchService";
 import { requireProjectContext } from "@/serverFunctions/middleware";
 
@@ -120,3 +121,17 @@ export const getSerpAnalysis = createServerFn({ method: "POST" })
       context,
     ),
   );
+
+export const clusterKeywords = createServerFn({ method: "POST" })
+  .middleware(requireProjectContext)
+  .inputValidator((data: unknown) => clusterKeywordsInputSchema.parse(data))
+  .handler(async ({ data, context }) => {
+    return KeywordResearchService.clusterKeywords(
+      {
+        ...data,
+        projectId: context.projectId,
+      },
+      context
+    );
+  });
+

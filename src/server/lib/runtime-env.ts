@@ -2,7 +2,7 @@ import { isHostedAuthMode } from "@/lib/auth-mode";
 
 let workersEnvPromise: Promise<Record<string, unknown> | null> | null = null;
 
-async function getEnvValue(name: string): Promise<string | undefined> {
+export async function getEnvValue(name: string): Promise<string | undefined> {
   const processValue =
     typeof process !== "undefined" ? process.env?.[name] : undefined;
   if (processValue) {

@@ -21,7 +21,7 @@ const messageSchema = z.object({
   sender: z.enum(["user", "bot"]),
   text: z.string(),
   timestamp: z.string(),
-  agent: z.enum(["claude", "gemini"]),
+  agent: z.enum(["nairi-qwen", "nairi-deepseek", "nairi-mimo", "nairi-claude", "nairi-claude-opus", "nairi-claude-opus-4-6", "nairi-claude-opus-4-7", "nairi-claude-opus-4-8", "nairi-claude-3-7-sonnet", "nairi-claude-sonnet-4-6", "nairi-gemini", "nairi-gemini-2-5-pro", "nairi-gemini-3-0-flash", "nairi-gemini-3-0-pro", "nairi-gemini-3-5-flash", "nairi-gemini-3-5-pro"]),
 });
 
 interface Message {
@@ -29,7 +29,7 @@ interface Message {
   sender: "user" | "bot";
   text: string;
   timestamp: string;
-  agent: "claude" | "gemini";
+  agent: "nairi-qwen" | "nairi-deepseek" | "nairi-mimo" | "nairi-claude" | "nairi-claude-opus" | "nairi-claude-opus-4-6" | "nairi-claude-opus-4-7" | "nairi-claude-opus-4-8" | "nairi-claude-3-7-sonnet" | "nairi-claude-sonnet-4-6" | "nairi-gemini" | "nairi-gemini-2-5-pro" | "nairi-gemini-3-0-flash" | "nairi-gemini-3-0-pro" | "nairi-gemini-3-5-flash" | "nairi-gemini-3-5-pro";
 }
 
 function parseHistory(savedHistory: string | null): Message[] {
@@ -62,7 +62,8 @@ export function ChatSidebar({
   width: number;
   onWidthChange: (w: number) => void;
 }) {
-  const [agent, setAgent] = React.useState<"claude" | "gemini">("claude");
+  const [agent, setAgent] = React.useState<"nairi-qwen" | "nairi-deepseek" | "nairi-mimo" | "nairi-claude" | "nairi-claude-opus" | "nairi-claude-opus-4-6" | "nairi-claude-opus-4-7" | "nairi-claude-opus-4-8" | "nairi-claude-3-7-sonnet" | "nairi-claude-sonnet-4-6" | "nairi-gemini" | "nairi-gemini-2-5-pro" | "nairi-gemini-3-0-flash" | "nairi-gemini-3-0-pro" | "nairi-gemini-3-5-flash" | "nairi-gemini-3-5-pro">("nairi-qwen");
+
   const [input, setInput] = React.useState("");
   const [messages, setMessages] = React.useState<Message[]>([]);
   const [sessionId, setSessionId] = React.useState<string>("");
@@ -151,13 +152,30 @@ export function ChatSidebar({
     setMessages([]);
 
     const savedAgent = localStorage.getItem(agentKey);
-    if (savedAgent === "claude" || savedAgent === "gemini") {
-      setAgent(savedAgent);
+    if (
+      savedAgent === "nairi-qwen" ||
+      savedAgent === "nairi-deepseek" ||
+      savedAgent === "nairi-mimo" ||
+      savedAgent === "nairi-claude" ||
+      savedAgent === "nairi-claude-opus" ||
+      savedAgent === "nairi-claude-opus-4-6" ||
+      savedAgent === "nairi-claude-opus-4-7" ||
+      savedAgent === "nairi-claude-opus-4-8" ||
+      savedAgent === "nairi-claude-3-7-sonnet" ||
+      savedAgent === "nairi-claude-sonnet-4-6" ||
+      savedAgent === "nairi-gemini" ||
+      savedAgent === "nairi-gemini-2-5-pro" ||
+      savedAgent === "nairi-gemini-3-0-flash" ||
+      savedAgent === "nairi-gemini-3-0-pro" ||
+      savedAgent === "nairi-gemini-3-5-flash" ||
+      savedAgent === "nairi-gemini-3-5-pro"
+    ) {
+      setAgent(savedAgent as any);
     }
   }, [projectId]);
 
   // Persist agent choice
-  const handleAgentChange = (newAgent: "claude" | "gemini") => {
+  const handleAgentChange = (newAgent: "nairi-qwen" | "nairi-deepseek" | "nairi-mimo" | "nairi-claude" | "nairi-claude-opus" | "nairi-claude-opus-4-6" | "nairi-claude-opus-4-7" | "nairi-claude-opus-4-8" | "nairi-claude-3-7-sonnet" | "nairi-claude-sonnet-4-6" | "nairi-gemini" | "nairi-gemini-2-5-pro" | "nairi-gemini-3-0-flash" | "nairi-gemini-3-0-pro" | "nairi-gemini-3-5-flash" | "nairi-gemini-3-5-pro") => {
     setAgent(newAgent);
     if (projectId) {
       localStorage.setItem(`openseo_chat_agent_${projectId}`, newAgent);
@@ -302,12 +320,12 @@ export function ChatSidebar({
             </div>
             <h3 className="text-sm font-bold text-base-content">Start a Sandboxed Chat</h3>
             <p className="text-[11px] text-base-content/60 mt-1 leading-relaxed">
-              Interact with the local {agent === "claude" ? "Claude Code" : "Gemini"} CLI.
+              Interact with the local Nairi AI agent.
               All operations are contained in `.sandbox-workspace/`.
             </p>
             <p className="text-[10px] text-warning/80 mt-3 flex items-center gap-1 bg-warning/5 px-2 py-1.5 rounded border border-warning/10">
               <AlertTriangle className="size-3 shrink-0" />
-              CLI must be installed globally.
+              OpenCode credentials must be configured.
             </p>
           </div>
         ) : (
@@ -331,7 +349,7 @@ export function ChatSidebar({
               <div className="flex flex-col max-w-[85%]">
                 <div className="flex items-center gap-1.5 mb-0.5 px-0.5">
                   <span className="text-[10px] font-semibold text-base-content/70">
-                    {msg.sender === "user" ? "You" : msg.agent === "claude" ? "Claude CLI" : "Gemini CLI"}
+                    {msg.sender === "user" ? "You" : "Nairi Agent"}
                   </span>
                   <span className="text-[8px] text-base-content/40">{msg.timestamp}</span>
                 </div>
@@ -384,7 +402,7 @@ export function ChatSidebar({
             <div className="flex flex-col max-w-[85%]">
               <div className="flex items-center gap-1.5 mb-0.5 px-0.5">
                 <span className="text-[10px] font-semibold text-base-content/70">
-                  {agent === "claude" ? "Claude CLI" : "Gemini CLI"}
+                  Nairi Agent
                 </span>
                 <span className="text-[8px] text-primary/70 animate-pulse">Running...</span>
               </div>
@@ -411,43 +429,299 @@ export function ChatSidebar({
               role="button"
               className="btn btn-xs h-9 bg-base-100 border border-base-300 rounded-lg px-2 flex items-center gap-1 text-[11px] font-semibold text-base-content/75 hover:bg-base-200 shadow-sm"
             >
-              <span>{agent === "claude" ? "Claude" : "Gemini"}</span>
+              <span>
+                {agent === "nairi-qwen"
+                  ? "Qwen 3.7"
+                  : agent === "nairi-deepseek"
+                    ? "DeepSeek v4"
+                    : agent === "nairi-mimo"
+                      ? "Mimo v2.5"
+                      : agent === "nairi-claude"
+                        ? "Claude Sonnet 3.5"
+                        : agent === "nairi-claude-opus"
+                          ? "Claude Opus 3"
+                          : agent === "nairi-claude-opus-4-6"
+                            ? "Claude Opus 4.6"
+                            : agent === "nairi-claude-opus-4-7"
+                              ? "Claude Opus 4.7"
+                              : agent === "nairi-claude-opus-4-8"
+                                ? "Claude Opus 4.8"
+                                : agent === "nairi-claude-3-7-sonnet"
+                                  ? "Claude Sonnet 3.7"
+                                  : agent === "nairi-claude-sonnet-4-6"
+                                    ? "Claude Sonnet 4.6"
+                                    : agent === "nairi-gemini"
+                                      ? "Gemini 2.5 Flash"
+                                      : agent === "nairi-gemini-2-5-pro"
+                                        ? "Gemini 2.5 Pro"
+                                        : agent === "nairi-gemini-3-0-flash"
+                                          ? "Gemini 3.0 Flash"
+                                          : agent === "nairi-gemini-3-0-pro"
+                                            ? "Gemini 3.0 Pro"
+                                            : agent === "nairi-gemini-3-5-flash"
+                                              ? "Gemini 3.5 Flash"
+                                              : "Gemini 3.5 Pro"}
+              </span>
               <ChevronDown className="size-3 text-base-content/40" />
             </div>
             <ul
               tabIndex={0}
-              className="dropdown-content z-[60] menu p-1 shadow-lg bg-base-100 rounded-lg w-28 border border-base-300 mb-1"
+              className="dropdown-content z-[60] menu p-1 shadow-lg bg-base-100 rounded-lg w-40 border border-base-300 mb-1"
             >
               <li>
                 <button
                   type="button"
                   className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
-                    agent === "claude" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                    agent === "nairi-qwen" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
                   }`}
                   onClick={() => {
-                    handleAgentChange("claude");
+                    handleAgentChange("nairi-qwen");
                     if (document.activeElement instanceof HTMLElement) {
                       document.activeElement.blur();
                     }
                   }}
                 >
-                  Claude
+                  Qwen 3.7 Max
                 </button>
               </li>
               <li className="mt-0.5">
                 <button
                   type="button"
                   className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
-                    agent === "gemini" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                    agent === "nairi-deepseek" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
                   }`}
                   onClick={() => {
-                    handleAgentChange("gemini");
+                    handleAgentChange("nairi-deepseek");
                     if (document.activeElement instanceof HTMLElement) {
                       document.activeElement.blur();
                     }
                   }}
                 >
-                  Gemini
+                  DeepSeek v4 Free
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-mimo" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-mimo");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Mimo v2.5 Free
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Sonnet 3.5
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-3-7-sonnet" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-3-7-sonnet");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Sonnet 3.7
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-opus" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-opus");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Opus 3
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-opus-4-6" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-opus-4-6");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Opus 4.6
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-opus-4-7" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-opus-4-7");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Opus 4.7
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-opus-4-8" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-opus-4-8");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Opus 4.8
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-claude-sonnet-4-6" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-claude-sonnet-4-6");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Claude Sonnet 4.6
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 2.5 Flash
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini-2-5-pro" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini-2-5-pro");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 2.5 Pro
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini-3-0-flash" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini-3-0-flash");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 3.0 Flash
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini-3-0-pro" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini-3-0-pro");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 3.0 Pro
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini-3-5-flash" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini-3-5-flash");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 3.5 Flash
+                </button>
+              </li>
+              <li className="mt-0.5">
+                <button
+                  type="button"
+                  className={`btn btn-xs h-7 min-h-0 justify-start font-medium text-[11px] ${
+                    agent === "nairi-gemini-3-5-pro" ? "bg-primary text-primary-content hover:bg-primary/90" : "btn-ghost text-base-content/85"
+                  }`}
+                  onClick={() => {
+                    handleAgentChange("nairi-gemini-3-5-pro");
+                    if (document.activeElement instanceof HTMLElement) {
+                      document.activeElement.blur();
+                    }
+                  }}
+                >
+                  Gemini 3.5 Pro
                 </button>
               </li>
             </ul>
@@ -456,7 +730,17 @@ export function ChatSidebar({
           <div className="relative flex-1 flex items-center">
             <input
               type="text"
-              placeholder={`Ask ${agent === "claude" ? "Claude" : "Gemini"}...`}
+              placeholder={
+                agent === "nairi-qwen"
+                  ? "Ask Qwen..."
+                  : agent === "nairi-deepseek"
+                    ? "Ask DeepSeek..."
+                    : agent === "nairi-mimo"
+                      ? "Ask Mimo..."
+                      : agent.startsWith("nairi-claude")
+                        ? "Ask Claude..."
+                        : "Ask Gemini..."
+              }
               className="input input-bordered w-full pr-10 rounded-lg bg-base-100 focus:outline-none focus:border-primary border-base-300 text-xs h-9 shadow-sm"
               value={input}
               onChange={(e) => setInput(e.target.value)}

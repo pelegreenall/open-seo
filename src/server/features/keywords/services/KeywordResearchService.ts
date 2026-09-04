@@ -8,6 +8,7 @@ import {
   exportSavedKeywords,
   updateSavedKeywordTag,
   updateSavedKeywordTags,
+  clusterKeywords,
 } from "@/server/features/keywords/services/research";
 
 export const KeywordResearchService = {
@@ -20,4 +21,5 @@ export const KeywordResearchService = {
   updateSavedKeywordTag,
   deleteSavedKeywordTag,
   removeSavedKeywords,
+  clusterKeywords,
 } as const;

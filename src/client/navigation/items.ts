@@ -5,6 +5,7 @@ import {
   Globe,
   Link2,
   MessageSquare,
+  Network,
   Search,
   Sparkles,
   TrendingUp,
@@ -17,6 +18,12 @@ const projectNavItems = [
     label: "Keyword Research",
     icon: Search,
     matchSegment: "/keywords",
+  },
+  {
+    to: "/p/$projectId/strategy" as const,
+    label: "Keyword Strategy",
+    icon: Network,
+    matchSegment: "/strategy",
   },
   {
     to: "/p/$projectId/saved" as const,
@@ -88,9 +95,10 @@ export function getProjectNavGroups(projectId: string) {
       type: "group" as const,
       label: "Keywords",
       icon: Search,
-      matchSegments: ["/keywords", "/saved", "/rank-tracking"],
+      matchSegments: ["/keywords", "/strategy", "/saved", "/rank-tracking"],
       items: [
         bySegment("/keywords"),
+        bySegment("/strategy"),
         bySegment("/saved"),
         bySegment("/rank-tracking"),
       ],

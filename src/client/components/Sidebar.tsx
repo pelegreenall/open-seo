@@ -45,7 +45,7 @@ export function Sidebar({ projectId, onNavigate, onClose }: SidebarProps) {
       <nav className="flex-1 py-2 pl-3 overflow-y-auto">
         {navGroups.map((entry) => {
           if (entry.type === "standalone") {
-            const { icon: Icon, ...linkProps } = entry.item;
+            const { icon: Icon, matchSegment, ...linkProps } = entry.item;
             return (
               <Link
                 key={linkProps.to}
@@ -74,7 +74,7 @@ export function Sidebar({ projectId, onNavigate, onClose }: SidebarProps) {
                 {entry.label}
               </div>
               {entry.items.map((item) => {
-                const { icon: Icon, ...linkProps } = item;
+                const { icon: Icon, matchSegment, ...linkProps } = item;
                 return (
                   <Link
                     key={linkProps.to}

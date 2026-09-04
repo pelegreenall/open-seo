@@ -9,3 +9,5 @@ export {
   deleteSavedKeywordTag,
   removeSavedKeywords,
 } from "./saved-keywords";
+export { clusterKeywords } from "./keywordClustering";
+
